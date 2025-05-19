@@ -2,6 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import userRoutes from './routes/userRoutes';
+import transactionRoutes from './routes/transactionRoutes';
+import categoryRoutes from './routes/categoryRoutes';
+import currencyRoutes from './routes/currencyRoutes';
+// @ts-ignore
+import swaggerUi from 'swagger-ui-express';
+import swaggerSpec from './swagger';
 // Import database connection
 import './config/db';
 
@@ -18,6 +24,10 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use('/api/users', userRoutes);
+app.use('/api/transactions', transactionRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/currencies', currencyRoutes);
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Simple health check route
 app.get('/api/health', (req, res) => {

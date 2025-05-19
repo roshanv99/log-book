@@ -1,0 +1,55 @@
+Transactions: 
+    1. transaction_id
+    2. transction_date 
+    3. category - (FK)
+    4. sub-category - (FK)
+    5. transaction_name 
+    6. amount
+    7. currency - (FK)
+    7. seller_Name
+    8. discount_amount
+    9. discount_origin
+    10. comments
+    11. user_id - (FK)
+    12. transaction-type (credit/debit) - 0/1
+    13. is_income - 0/1
+
+Investments: 
+    1. investement_id
+    2. investment_date 
+    3. type 
+    4. name
+    5. amount
+    6. currency - (FK)
+    7. user_id - (FK)
+
+Categories:
+    1. category_id
+    2. category_name
+
+Sub-Categories:
+    1. sub_category_id
+    2. sub_category_name
+    3. category_id - (FK)
+
+Currencies:
+    1. currency_id
+    2. currency_name
+    3. currency_symbol
+    4. currency_code
+
+Users:
+    1. user_id
+    2. username
+    3. email
+    4. mobile_number
+    5. profile_pic
+    6. currency - (FK)
+    7. monthly_start_date
+    8. created_at
+    9. updated_at
+    10. password_hash
+    11. last_login
+    12. Night Mode - boolean
+
+    

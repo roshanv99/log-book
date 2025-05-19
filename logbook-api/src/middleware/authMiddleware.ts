@@ -7,7 +7,7 @@ declare global {
   namespace Express {
     interface Request {
       user?: {
-        id: string;
+        userId: string;
       };
     }
   }
@@ -36,7 +36,7 @@ export const authMiddleware = async (
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
     
     // Check if user exists
-    const user = await UserModel.findById(decoded.userId);
+    const user = await UserModel.findById(parseInt(decoded.userId));
     
     if (!user) {
       res.status(401).json({ message: 'User not found' });
@@ -44,7 +44,7 @@ export const authMiddleware = async (
     }
     
     // Add user ID to request
-    req.user = { id: user.id };
+    req.user = { userId: user.user_id.toString() };
     
     next();
   } catch (error) {

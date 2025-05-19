@@ -47,7 +47,7 @@ export default function LoginScreen() {
         contentContainerStyle={styles.scrollContainer}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={[styles.title, { color: isDark ? '#fff' : '#000' }]}>Logbook 2</Text>
+        <Text style={[styles.title, { color: isDark ? '#fff' : '#000' }]}>Logbook 3</Text>
         <Text style={[styles.subtitle, { color: isDark ? '#ccc' : '#666' }]}>
           Sign in to your account
         </Text>

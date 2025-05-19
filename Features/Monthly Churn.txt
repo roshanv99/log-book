@@ -1,0 +1,60 @@
+Monthly Churn Layout: 
+
+Card 1: 
+- Amount Summary
+    a. Income (Editable by clicking on icon)
+    b. Expenses
+    c. Invested
+    c. Net
+
+Card 2: 
+- Aggregated Bar Graph Based on Category and Amount
+
+We need a horizontal scroll to swipe between card 3a and 3b
+Card 3(a):
+- Tabular Data of all Transactions
+- The columns: 
+    a. *Date 
+    b. *Category (Example: Food, Subscription)
+    c. SubCategory (Example: Lunch, Spotify)
+    d. *Amount (In Rupees)
+- When we click on a Transaction we open a modal with full information of that Transaction:
+    a. *Date 
+    b. *Category (Example: Food, Subscription)
+    c. SubCategory (Example: Lunch, Spotify)
+    d. Item Name (Example: Pizza, null)
+    e. *Total Amount (In Rupees)
+    f. Seller Name
+    g. Discount Amount
+    h. Discount Origin
+    k. Comments
+- When we click on a add icon,  we open a modal to enter the below information:
+    a. *Date (Calendar View)
+    b. *Category (Example: Food, Subscription) (dropdown with search)
+    c. SubCategory (Example: Lunch, Spotify) (dropdown with search)
+    d. Item Name (Example: Pizza, null) 
+    e. *Total Amount (In Rupees)
+    f. Seller Name
+    g. Discount Amount
+    h. Discount Origin
+    k. Comments
+    - Date, Category and Amount is mandatory. Add Validation. 
+    - Category and Subcategory should be a dropdown with a search functionality. The subcategory should be dependent on the category
+
+Card 3(b):
+- Tabular Data of all Investments
+- The columns: 
+    a. *Date 
+    b. Type (Example: Mutual Fund)
+    c. Name
+    d. *Amount (In Rupees)
+- When we click on a add icon,  we open a modal to enter the below information:
+    a. *Date 
+    b. Type (Example: Mutual Fund)
+    c. Name
+    d. *Amount (In Rupees)
+
+Card 4: 
+- A link to Edit Categories
+- When we click on this, we get a modal with a Category-SubCategory mapping. 
+- We have a provision to add a new Category and new Subcategory as well. 

@@ -1,225 +1,123 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Switch, ScrollView, TouchableOpacity, Alert, Appearance } from 'react-native';
-import { ThemedView } from '@/components/ThemedView';
-import { ThemedText } from '@/components/ThemedText';
-import { useColorScheme, toggleColorScheme } from '@/hooks/useColorScheme';
-import { useAuth } from '@/context/AuthContext';
-import { IconSymbol } from '@/components/ui/IconSymbol';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Colors } from '@/constants/Colors';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Switch, TouchableOpacity, Image } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
+import { Picker } from '@react-native-picker/picker';
 
-// Define types for settings items
-type BaseSettingItem = {
-  icon: string;
-  label: string;
-};
-
-type ToggleSettingItem = BaseSettingItem & {
-  type: 'toggle';
-  value: boolean;
-  onToggle: (value: boolean) => void;
-};
-
-type ActionSettingItem = BaseSettingItem & {
-  onPress: () => void;
-};
-
-type StaticSettingItem = BaseSettingItem & {
-  value: string;
-  static: boolean;
-};
-
-type SettingItem = ToggleSettingItem | ActionSettingItem | StaticSettingItem;
-
-type SettingSection = {
+type SettingItemProps = {
+  icon: keyof typeof Ionicons.glyphMap;
   title: string;
-  items: SettingItem[];
+  value: string | boolean;
+  onPress: () => void;
+  type?: 'default' | 'switch' | 'picker';
 };
-
-const THEME_STORAGE_KEY = '@theme_mode';
 
 export default function SettingsScreen() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
-  const { user, logout } = useAuth();
-  
-  // Settings states
-  const [notifications, setNotifications] = useState(true);
-  const [darkMode, setDarkMode] = useState(isDark);
-  
-  // Effect to update dark mode state when system preference changes
-  useEffect(() => {
-    setDarkMode(isDark);
-  }, [isDark]);
-  
-  // Function to toggle dark mode
-  const toggleDarkMode = async (value: boolean) => {
-    setDarkMode(value);
-    
-    try {
-      // Apply the theme change
-      const newTheme = value ? 'dark' : 'light';
-      await AsyncStorage.setItem(THEME_STORAGE_KEY, newTheme);
-      Appearance.setColorScheme(newTheme);
-      
-      // Force a re-render
-      setTimeout(() => {
-        if (value !== isDark) {
-          setDarkMode(value);
-        }
-      }, 100);
-    } catch (error) {
-      console.error('Failed to save theme preference', error);
+  const router = useRouter();
+  const { colors } = useTheme();
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [selectedCurrency, setSelectedCurrency] = useState('USD');
+  const [monthlyStartDate, setMonthlyStartDate] = useState('1');
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+
+  const currencies = ['USD', 'EUR', 'GBP', 'INR', 'JPY'];
+  const monthDays = Array.from({ length: 31 }, (_, i) => (i + 1).toString());
+
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 1,
+    });
+
+    if (!result.canceled) {
+      setProfileImage(result.assets[0].uri);
     }
   };
-  
-  const settingsSections: SettingSection[] = [
-    {
-      title: 'Account',
-      items: [
-        {
-          icon: 'person.fill',
-          label: 'Profile Information',
-          onPress: () => Alert.alert('Profile', 'Profile editing will be available soon')
-        },
-        {
-          icon: 'lock.fill',
-          label: 'Security',
-          onPress: () => Alert.alert('Security', 'Security settings will be available soon')
-        },
-      ]
-    },
-    {
-      title: 'Preferences',
-      items: [
-        {
-          icon: 'bell.fill',
-          label: 'Notifications',
-          type: 'toggle',
-          value: notifications,
-          onToggle: setNotifications
-        },
-        {
-          icon: 'moon.fill',
-          label: 'Dark Mode',
-          type: 'toggle',
-          value: darkMode,
-          onToggle: toggleDarkMode
-        },
-      ]
-    },
-    {
-      title: 'Help & Support',
-      items: [
-        {
-          icon: 'questionmark.circle.fill',
-          label: 'Help Center',
-          onPress: () => Alert.alert('Help', 'Help content will be available soon')
-        },
-        {
-          icon: 'envelope.fill',
-          label: 'Contact Us',
-          onPress: () => Alert.alert('Contact', 'Contact information will be available soon')
-        },
-      ]
-    },
-    {
-      title: 'About',
-      items: [
-        {
-          icon: 'info.circle.fill',
-          label: 'App Version',
-          value: '1.0.0',
-          static: true
-        },
-        {
-          icon: 'doc.text.fill',
-          label: 'Terms of Service',
-          onPress: () => Alert.alert('Terms', 'Terms content will be available soon')
-        },
-        {
-          icon: 'hand.raised.fill',
-          label: 'Privacy Policy',
-          onPress: () => Alert.alert('Privacy', 'Privacy policy will be available soon')
-        },
-      ]
-    },
-  ];
+
+  const renderSettingItem = ({ icon, title, value, onPress, type = 'default' }: SettingItemProps) => (
+    <TouchableOpacity
+      style={[styles.settingItem, { borderBottomColor: colors.border }]}
+      onPress={onPress}
+    >
+      <View style={styles.settingItemLeft}>
+        <Ionicons name={icon} size={24} color={colors.text} />
+        <Text style={[styles.settingItemText, { color: colors.text }]}>{title}</Text>
+      </View>
+      {type === 'switch' ? (
+        <Switch
+          value={value as boolean}
+          onValueChange={onPress}
+          trackColor={{ false: colors.border, true: colors.primary }}
+        />
+      ) : type === 'picker' ? (
+        <Text style={[styles.settingItemValue, { color: colors.text }]}>{value as string}</Text>
+      ) : (
+        <Ionicons name="chevron-forward" size={24} color={colors.text} />
+      )}
+    </TouchableOpacity>
+  );
 
   return (
-    <ThemedView style={styles.container}>
-      <View style={styles.header}>
-        <ThemedText style={styles.title}>Settings</ThemedText>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.profileSection}>
+        <TouchableOpacity onPress={pickImage}>
+          <View style={[styles.profileImageContainer, { borderColor: colors.border }]}>
+            {profileImage ? (
+              <Image source={{ uri: profileImage }} style={styles.profileImage} />
+            ) : (
+              <Ionicons name="person" size={40} color={colors.text} />
+            )}
+          </View>
+        </TouchableOpacity>
+        <Text style={[styles.profileName, { color: colors.text }]}>User Name</Text>
       </View>
 
-      <ScrollView style={styles.scrollView}>
-        {settingsSections.map((section, sectionIndex) => (
-          <View key={section.title} style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>{section.title}</ThemedText>
-            
-            <View style={[
-              styles.sectionContent,
-              { backgroundColor: Colors[colorScheme].cardAlt }
-            ]}>
-              {section.items.map((item, itemIndex) => (
-                <TouchableOpacity
-                  key={item.label}
-                  style={[
-                    styles.settingItem,
-                    itemIndex < section.items.length - 1 && styles.borderBottom
-                  ]}
-                  onPress={'onPress' in item ? item.onPress : undefined}
-                  disabled={'type' in item || 'static' in item}
-                >
-                  <View style={styles.settingItemMain}>
-                    <IconSymbol 
-                      name={item.icon as any} 
-                      size={22} 
-                      color={isDark ? '#fff' : '#333'} 
-                      style={styles.settingIcon}
-                    />
-                    <ThemedText style={styles.settingLabel}>{item.label}</ThemedText>
-                  </View>
-                  
-                  {'type' in item && item.type === 'toggle' ? (
-                    <Switch
-                      value={item.value}
-                      onValueChange={item.onToggle}
-                      trackColor={{ 
-                        false: isDark ? '#444' : '#E0E0E0', 
-                        true: Colors[colorScheme].primary + '80' 
-                      }}
-                      thumbColor={item.value ? Colors[colorScheme].primary : isDark ? '#666' : '#F5F5F5'}
-                    />
-                  ) : 'value' in item ? (
-                    <ThemedText style={styles.settingValue}>{item.value}</ThemedText>
-                  ) : (
-                    <IconSymbol 
-                      name="chevron.right" 
-                      size={18} 
-                      color={isDark ? '#999' : '#999'} 
-                    />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        ))}
-        
-        <TouchableOpacity 
-          style={[
-            styles.logoutButton, 
-            { backgroundColor: Colors[colorScheme].error + '20' }
-          ]}
-          onPress={logout}
-        >
-          <IconSymbol name="arrow.right.square" size={22} color={Colors[colorScheme].error} />
-          <ThemedText style={[styles.logoutText, { color: Colors[colorScheme].error }]}>Logout</ThemedText>
-        </TouchableOpacity>
-        
-        <View style={styles.footer} />
-      </ScrollView>
-    </ThemedView>
+      <View style={styles.settingsSection}>
+        {renderSettingItem({
+          icon: 'mail-outline',
+          title: 'Email ID',
+          value: 'user@example.com',
+          onPress: () => {},
+        })}
+        {renderSettingItem({
+          icon: 'call-outline',
+          title: 'Mobile Number',
+          value: '+1 234 567 8900',
+          onPress: () => {},
+        })}
+        {renderSettingItem({
+          icon: 'moon-outline',
+          title: 'Night Mode',
+          value: isDarkMode,
+          onPress: () => setIsDarkMode(!isDarkMode),
+          type: 'switch',
+        })}
+        {renderSettingItem({
+          icon: 'cash-outline',
+          title: 'Currency',
+          value: selectedCurrency,
+          onPress: () => {},
+          type: 'picker',
+        })}
+        {renderSettingItem({
+          icon: 'calendar-outline',
+          title: 'Monthly Start Cycle',
+          value: `${monthlyStartDate}th of every month`,
+          onPress: () => {},
+          type: 'picker',
+        })}
+        {renderSettingItem({
+          icon: 'information-circle-outline',
+          title: 'About',
+          value: '',
+          onPress: () => {},
+        })}
+      </View>
+    </View>
   );
 }
 
@@ -227,74 +125,48 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
+  profileSection: {
     alignItems: 'center',
+    padding: 20,
   },
-  title: {
+  profileImageContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  profileImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 50,
+  },
+  profileName: {
     fontSize: 20,
     fontWeight: 'bold',
   },
-  scrollView: {
-    flex: 1,
-  },
-  section: {
+  settingsSection: {
     paddingHorizontal: 20,
-    paddingTop: 24,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  sectionContent: {
-    borderRadius: 12,
-    overflow: 'hidden',
   },
   settingItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  borderBottom: {
+    paddingVertical: 15,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
   },
-  settingItemMain: {
+  settingItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  settingIcon: {
-    marginRight: 12,
-  },
-  settingLabel: {
+  settingItemText: {
     fontSize: 16,
+    marginLeft: 15,
   },
-  settingValue: {
+  settingItemValue: {
     fontSize: 16,
-    opacity: 0.7,
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: 20,
-    marginTop: 32,
-    marginBottom: 20,
-    padding: 16,
-    borderRadius: 12,
-  },
-  logoutText: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  footer: {
-    height: 40,
+    marginRight: 10,
   },
 }); 

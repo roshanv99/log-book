@@ -1,21 +1,14 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { userApi } from '../services/api';
-
-// Define user type
-export type User = {
-  id: string;
-  username: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
-};
+import type { User } from '@/types';
 
 // Define authentication context type
-type AuthContextType = {
+export type AuthContextType = {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  token: string | null;
   login: (email: string, password: string) => Promise<void>;
   signup: (user: Omit<User, 'id'>, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -27,6 +20,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   isAuthenticated: false,
   isLoading: true,
+  token: null,
   login: async () => {},
   signup: async () => {},
   logout: async () => {},
@@ -94,11 +88,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Map API response to our User type
       const loggedInUser: User = {
-        id: response.user.id,
+        user_id: response.user.user_id ?? response.user.id,
         username: response.user.username,
         email: response.user.email,
-        firstName: response.user.first_name,
-        lastName: response.user.last_name
+        currency_id: response.user.currency_id,
+        // Add other fields as needed
       };
       
       // Store user in AsyncStorage
@@ -127,9 +121,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const response = await userApi.register({
         username: newUser.username,
         email: newUser.email,
-        password: password,
-        firstName: newUser.firstName,
-        lastName: newUser.lastName
+        password: password
       });
       
       // Store token in AsyncStorage
@@ -137,11 +129,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Map API response to our User type
       const createdUser: User = {
-        id: response.user.id,
+        user_id: response.user.user_id ?? response.user.id,
         username: response.user.username,
         email: response.user.email,
-        firstName: response.user.first_name,
-        lastName: response.user.last_name
+        currency_id: response.user.currency_id,
+        // Add other fields as needed
       };
       
       // Store user in AsyncStorage
@@ -185,6 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user,
     isAuthenticated: !!user,
     isLoading,
+    token,
     login,
     signup,
     logout,

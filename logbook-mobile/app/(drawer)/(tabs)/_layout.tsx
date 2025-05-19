@@ -1,4 +1,5 @@
 import { Tabs } from 'expo-router';
+import React from 'react';
 import { Platform } from 'react-native';
 
 import { HapticTab } from '@/components/HapticTab';
@@ -7,53 +8,50 @@ import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme() || 'light';
-  const isDark = colorScheme === 'dark';
+export default function FinanceTabsLayout() {
+  const colorScheme = useColorScheme();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme].primary,
-        headerShown: false, // Ensure headers are not shown at tab level
+        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        headerShown: false,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
-        tabBarStyle: {
-          backgroundColor: Colors[colorScheme].card,
-          borderTopColor: Colors[colorScheme].border,
-          ...Platform.select({
-            ios: {
-              shadowColor: Colors[colorScheme].text,
-              shadowOpacity: 0.1,
-              shadowRadius: 4,
-              shadowOffset: { width: 0, height: -2 },
-            },
-            android: {
-              elevation: 8,
-            },
-          }),
-        },
-      }}
-    >
+        tabBarStyle: Platform.select({
+          ios: {
+            // Use a transparent background on iOS to show the blur effect
+            position: 'absolute',
+          },
+          default: {},
+        }),
+      }}>
       <Tabs.Screen
-        name="overview"
+        name="index"
         options={{
-          title: 'Overview',
-          tabBarIcon: ({ color }) => <IconSymbol size={22} name="chart.pie.fill" color={color} />,
+          title: 'Dashboard',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="chart.pie.fill" color={color} />,
         }}
       />
       <Tabs.Screen
-        name="transactions"
+        name="monthly-churn"
         options={{
-          title: 'Transactions',
-          tabBarIcon: ({ color }) => <IconSymbol size={22} name="list.bullet" color={color} />,
+          title: 'Monthly Churn',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="calendar.badge.clock" color={color} />,
         }}
       />
       <Tabs.Screen
-        name="budget"
+        name="query"
         options={{
-          title: 'Budget',
-          tabBarIcon: ({ color }) => <IconSymbol size={22} name="banknote" color={color} />,
+          title: 'Query',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="magnifyingglass" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="upload-bill"
+        options={{
+          title: 'Upload Bill',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="doc.badge.plus" color={color} />,
         }}
       />
     </Tabs>
