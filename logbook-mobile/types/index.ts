@@ -60,6 +60,7 @@ export interface TransactionFormData {
   comments: string;
   transaction_type: number;
   is_income: number;
+  user_id: string;
 }
 
 export interface InvestmentFormData {
@@ -68,6 +69,7 @@ export interface InvestmentFormData {
   name: string;
   amount: number;
   currency_id: number;
+  user_id: string;
 }
 
 export interface User {

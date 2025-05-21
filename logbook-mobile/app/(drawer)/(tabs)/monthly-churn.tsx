@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, Modal, TextInput, DimensionValue, FlatList } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Modal, TextInput, DimensionValue, FlatList, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
@@ -14,14 +14,7 @@ import { transactionApi, investmentApi, categoryApi, currencyApi } from '@/servi
 import AuthContext from '@/context/AuthContext';
 import type { AuthContextType } from '@/context/AuthContext';
 import type { Transaction, Investment, Category, SubCategory, Currency, TransactionFormData, InvestmentFormData } from '@/types';
-
-// Sample monthly data
-const monthlySummary = {
-  income: 42000,
-  expenses: 28500,
-  invested: 8000,
-  net: 5500,
-};
+import { useAuth } from '@/context/AuthContext';
 
 // Sample investment data
 const investmentData: Investment[] = [
@@ -43,24 +36,81 @@ const categoryData = [
 // Find the maximum value for scaling the bars
 const maxCategoryAmount = Math.max(...categoryData.map(item => item.amount));
 
-// Available categories for dropdown
-const availableCategories = [
-  'Food',
-  'Transport',
-  'Utilities',
-  'Shopping',
-  'Subscription',
-  'Entertainment',
+// Add these constants at the top of the component
+const INVESTMENT_TYPES = [
+  'Mutual Funds',
+  'Stocks',
+  'Fixed Deposits',
+  'Chit Fund'
 ];
 
-// Available subcategories mapped to categories
-const availableSubCategories = {
-  Food: ['Lunch', 'Dinner', 'Groceries', 'Snacks'],
-  Transport: ['Cab', 'Fuel', 'Public Transport', 'Maintenance'],
-  Utilities: ['Electricity', 'Water', 'Internet', 'Gas'],
-  Shopping: ['Clothing', 'Electronics', 'Home', 'Personal care'],
-  Subscription: ['Entertainment', 'Software', 'News', 'Music'],
-  Entertainment: ['Movies', 'Events', 'Games', 'Activities'],
+let incomeValue:number | null = null;
+
+
+const SpendingByCategory = () => {
+  const { token } = useAuth();
+  const [categoryData, setCategoryData] = useState<{ category_id: number; category_name: string; total_amount: number }[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+
+  useEffect(() => {
+    const fetchCategoryData = async () => {
+      if (!token) return;
+      try {
+        const data = await transactionApi.getCategoryAggregates(token);
+        setCategoryData(data);
+      } catch (error) {
+        console.error('Error fetching category data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchCategoryData();
+  }, [token]);
+
+  if (isLoading) {
+    return <ActivityIndicator size="large" color={isDark ? '#4361EE' : '#3D5AF1'} />;
+  }
+  if (categoryData.length === 0) {
+    return <ThemedText style={styles.noDataText}>No spending data available</ThemedText>;
+  }
+
+  const safeCategoryData = categoryData.map(item => ({
+    ...item,
+    total_amount: item.total_amount ?? 0,
+  }));
+
+  const maxCategoryAmount = Math.max(...safeCategoryData.map(item => item.total_amount));
+
+  return (
+    <View style={styles.chartContainer}>
+      {safeCategoryData.map((item) => {
+        const barWidth = `${(item.total_amount / maxCategoryAmount) * 80}%`;
+        return (
+          <View key={item.category_id} style={styles.barGroup}>
+            <View style={styles.barRow}>
+              <ThemedText style={styles.barLabel}>{item.category_name}</ThemedText>
+              <ThemedText style={styles.barValue} numberOfLines={1}>
+                ₹{Number(item.total_amount ?? 0).toFixed(2)}
+              </ThemedText>
+            </View>
+            <View style={styles.barContainer}>
+              <View
+               style={[
+                styles.bar,
+                {
+                  width: barWidth as DimensionValue,
+                  backgroundColor: isDark ? '#4361EE' : '#3D5AF1',
+                },
+              ]}
+              />
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
 };
 
 export default function MonthlyChurnScreen() {
@@ -69,6 +119,7 @@ export default function MonthlyChurnScreen() {
   const backgroundColor = Colors[colorScheme].background;
   const cardBackgroundColor = Colors[colorScheme].card;
   const borderColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+  const { token, user } = useContext(AuthContext) as AuthContextType;
   
   // State for modals
   const [transactionModalVisible, setTransactionModalVisible] = useState(false);
@@ -83,17 +134,23 @@ export default function MonthlyChurnScreen() {
     sub_category_id: 0,
     transaction_name: '',
     amount: 0,
-    currency_id: 0,
+    currency_id: user?.currency_id || 1,
     seller_name: '',
     discount_amount: 0,
     discount_origin: '',
     comments: '',
     transaction_type: 0,
     is_income: 0,
+    user_id: user?.user_id ? String(user.user_id) : ''
   });
   
   // State for editable summary
-  const [editableSummary, setEditableSummary] = useState({...monthlySummary});
+  const [monthlySummary, setMonthlySummary] = useState({
+    income: 0,
+    expenses: 0,
+    invested: 0,
+    net: 0,
+  });
 
   // State for categories and subcategories
   const [categories, setCategories] = useState<Category[]>([]);
@@ -108,15 +165,15 @@ export default function MonthlyChurnScreen() {
     type: '',
     name: '',
     amount: 0,
-    currency_id: 0,
+    currency_id: user?.currency_id || 1,
+    user_id: user?.user_id ? String(user.user_id) : ''
   });
   const [editCategoriesModalVisible, setEditCategoriesModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState(0); // 0 for transactions, 1 for investments
   
-  const { token, user } = useContext(AuthContext) as AuthContextType;
-
   // State for transactions
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [investmentData, setInvestmentData] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Add to state:
@@ -129,9 +186,39 @@ export default function MonthlyChurnScreen() {
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [showSubCategoryDropdown, setShowSubCategoryDropdown] = useState(false);
 
+  // Add new state for category management
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newSubCategoryName, setNewSubCategoryName] = useState('');
+  const [selectedCategoryForSub, setSelectedCategoryForSub] = useState<number | null>(null);
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [isAddingSubCategory, setIsAddingSubCategory] = useState(false);
+
+  // Add new state for date picker modal
+  const [datePickerModalVisible, setDatePickerModalVisible] = useState(false);
+  const [tempDate, setTempDate] = useState<Date>(new Date());
+
+  // Add this state for investment date picker
+  const [investmentDatePickerVisible, setInvestmentDatePickerVisible] = useState(false);
+
   // Helper to get user's currency symbol
   const userCurrency = currencies.find(c => c.currency_id === user?.currency_id);
   const currencySymbol = userCurrency ? userCurrency.currency_symbol : '₹';
+
+  // Add this helper function near the top of the component
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const day = date.getDate();
+    const month = date.toLocaleString('default', { month: 'short' });
+    
+    // Handle special cases for 11, 12, 13
+    if (day >= 11 && day <= 13) {
+      return `${day}th ${month}`;
+    }
+    
+    // Handle other numbers
+    const suffix = ['th', 'st', 'nd', 'rd'][day % 10];
+    return `${day}${suffix} ${month}`;
+  };
 
   // Validation function
   const validateTransaction = () => {
@@ -139,19 +226,59 @@ export default function MonthlyChurnScreen() {
     if (!newTransaction.transaction_date) errors.transaction_date = 'Date is required';
     if (!newTransaction.category_id) errors.category_id = 'Category is required';
     if (!newTransaction.amount || newTransaction.amount <= 0) errors.amount = 'Amount is required';
+    if (newTransaction.transaction_type === undefined) errors.transaction_type = 'Transaction type is required';
     return errors;
   };
 
-  // Fetch transactions for current period
+  // Add this new function to handle calculations
+  const updateMonthlySummary = (transactions: Transaction[], investments: Investment[]) => {
+
+    const nonIncomeTransactions = transactions.filter(txn => txn.is_income === 0);
+    const incomeAmount = incomeValue || 0;
+
+    // Calculate expenses (sum of transactions, subtracting credits)
+    const expenses = nonIncomeTransactions.reduce((sum, txn) => {
+      const amt = Number(txn.amount) || 0;
+      if (txn.transaction_type === 0) {
+        return sum + amt;
+      } else {
+        return sum - amt;
+      }
+    }, 0);
+
+    // Calculate invested amount
+    const investedAmount = investments.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
+
+    // Calculate net amount
+    const net = incomeAmount - expenses - investedAmount;
+
+    // Update monthly summary
+    setMonthlySummary({
+      income: incomeAmount,
+      expenses: expenses,
+      invested: investedAmount,
+      net: net
+    });
+  };
+
+  // Update fetchTransactions to NOT call updateMonthlySummary
   const fetchTransactions = async () => {
     if (!token) return;
     setLoading(true);
     try {
       const data = await transactionApi.getCurrentPeriodTransactions(token);
-      // Ensure transactions is always an array
-      setTransactions(data || []);
+      setTransactions(data.filter(txn => txn.is_income === 0) || []);
+      incomeValue = data.find(txn => txn.is_income === 1)?.amount || 0;
+      console.log('incomeValue', incomeValue);
     } catch (err) {
       console.error('Error fetching transactions:', err);
+      setMonthlySummary({
+        income: 0,
+        expenses: 0,
+        invested: 0,
+        net: 0
+      });
+      incomeValue = null;
       setTransactions([]); // fallback to empty array on error
     }
     setLoading(false);
@@ -191,11 +318,35 @@ export default function MonthlyChurnScreen() {
     }
   };
 
+  // Add this new function to fetch all subcategories for all categories
+  const fetchAllSubCategories = async () => {
+    if (!token) return;
+    try {
+      const allSubCategories: SubCategory[] = [];
+      for (const category of categories) {
+        const subCategories = await categoryApi.getSubCategories(token, category.category_id);
+        allSubCategories.push(...subCategories);
+      }
+      setSubCategories(allSubCategories);
+    } catch (err) {
+      console.error('Error fetching all subcategories:', err);
+    }
+  };
+
+  // Update the useEffect to fetch all subcategories when categories change
   useEffect(() => {
     fetchTransactions();
+    fetchInvestments()
     fetchCategories();
     fetchCurrencies();
   }, [token]);
+
+  // Add new useEffect to fetch subcategories when categories change
+  useEffect(() => {
+    if (categories.length > 0) {
+      fetchAllSubCategories();
+    }
+  }, [categories]);
 
   // Modified addTransaction handler
   const handleAddTransaction = async () => {
@@ -209,11 +360,15 @@ export default function MonthlyChurnScreen() {
   const addTransaction = async (data: TransactionFormData) => {
     if (!token || !user?.user_id) return;
     try {
-      await transactionApi.addTransaction(token, data);
+      await transactionApi.addTransaction(token, {
+        ...data,
+        user_id: String(user.user_id)
+      });
       fetchTransactions();
       setAddModalVisible(false);
     } catch (err) {
       console.error('Error adding transaction:', err);
+      Alert.alert('Error', 'Failed to add transaction. Please try again.');
     }
   };
 
@@ -257,9 +412,17 @@ export default function MonthlyChurnScreen() {
   };
   
   // Handle saving edited summary
-  const handleSaveSummary = () => {
-    // Here you would normally update this via an API
-    setIsEditingSummary(false);
+  const handleSaveSummary = async () => {
+    if (!token) return;
+    try {
+      await transactionApi.upsertIncome(token, monthlySummary.income);
+      Alert.alert('Success', 'Income saved for current period.');
+      setIsEditingSummary(false);
+      // Optionally, refresh transactions or summary here if needed
+    } catch (err) {
+      console.error('Error saving income:', err);
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to save income.');
+    }
   };
   
   // Toggle editing mode for summary
@@ -276,32 +439,39 @@ export default function MonthlyChurnScreen() {
   };
   
   // Add new investment
-  const addInvestment = () => {
-    // Convert string values to numbers where needed
-    const amount = parseFloat(newInvestment.amount.toString());
-    
-    if (isNaN(amount)) {
-      // Handle validation error
-      console.log('Invalid amount');
-      return;
+  const addInvestment = async () => {
+    if (!token || !user?.user_id) return;
+    try {
+      await investmentApi.addInvestment(token, {
+        ...newInvestment,
+        user_id: String(user.user_id)
+      });
+      fetchInvestments();
+      setAddInvestmentModalVisible(false);
+    } catch (err) {
+      console.error('Error adding investment:', err);
+      Alert.alert('Error', 'Failed to add investment. Please try again.');
     }
-    
-    // In a real app, would add the investment to state/database
-    console.log('New investment:', {
-      ...newInvestment,
-      amount,
-    });
-    
-    setAddInvestmentModalVisible(false);
-    // Reset form
-    setNewInvestment({
-      investment_date: new Date().toISOString().split('T')[0],
-      type: '',
-      name: '',
-      amount: 0,
-      currency_id: 0,
-    });
   };
+
+  // Update fetchInvestments to NOT call updateMonthlySummary
+  const fetchInvestments = async () => {
+    if (!token) return;
+    try {
+      const data = await investmentApi.getInvestments(token);
+      setInvestmentData(data || []);
+    } catch (err) {
+      console.error('Error fetching investments:', err);
+      setInvestmentData([]);
+    }
+  };
+
+  // Add useEffect to update summary only after both are loaded
+  useEffect(() => {
+    if ((transactions.length > 0 || investmentData.length > 0) && incomeValue) {
+      updateMonthlySummary(transactions, investmentData);
+    }
+  }, [transactions, investmentData]);
 
   // Add these helper functions inside the MonthlyChurnScreen component
   const filteredCategories = categories.filter(cat => 
@@ -312,8 +482,166 @@ export default function MonthlyChurnScreen() {
     sub.sub_category_name.toLowerCase().includes(subCategorySearch.toLowerCase())
   );
 
+  // Add handlers for category management
+  const handleAddCategory = async () => {
+    if (!token || !newCategoryName.trim()) return;
+    try {
+      await categoryApi.addCategory(token, newCategoryName.trim());
+      setNewCategoryName('');
+      setIsAddingCategory(false);
+      fetchCategories(); // Refresh categories
+    } catch (err) {
+      console.error('Error adding category:', err);
+    }
+  };
+
+  // Update the edit categories modal visibility handler
+  const handleEditCategoriesModalOpen = () => {
+    setEditCategoriesModalVisible(true);
+    fetchAllSubCategories(); // Fetch all subcategories when modal opens
+  };
+
+  // Update the category selection handler
+  const handleCategorySelect = async (categoryId: number) => {
+    // If we're already adding a subcategory to this category, close it
+    if (isAddingSubCategory && selectedCategoryForSub === categoryId) {
+      setIsAddingSubCategory(false);
+      setSelectedCategoryForSub(null);
+    } else {
+      // Otherwise, open the subcategory form for this category
+      setIsAddingSubCategory(true);
+      setSelectedCategoryForSub(categoryId);
+    }
+    
+    try {
+      const subCategories = await categoryApi.getSubCategories(token!, categoryId);
+      setSubCategories(subCategories);
+    } catch (err) {
+      console.error('Error fetching subcategories:', err);
+    }
+  };
+
+  // Update handleAddSubCategory to refresh subcategories after adding
+  const handleAddSubCategory = async () => {
+    if (!token || !selectedCategoryForSub || !newSubCategoryName.trim()) return;
+    try {
+      await categoryApi.addSubCategory(token, selectedCategoryForSub, newSubCategoryName.trim());
+      setNewSubCategoryName('');
+      setIsAddingSubCategory(false);
+      // Fetch subcategories for the selected category
+      const subCategories = await categoryApi.getSubCategories(token, selectedCategoryForSub);
+      setSubCategories(subCategories);
+    } catch (err) {
+      console.error('Error adding subcategory:', err);
+      Alert.alert('Error', 'Failed to add subcategory. Please try again.');
+    }
+  };
+
+  const handleDeleteSubCategory = async (subCategoryId: number) => {
+    if (!token) return;
+    
+    // Validate that the subcategory exists in our local state
+    const subcategoryExists = subCategories.some(sub => sub.sub_category_id === subCategoryId);
+    if (!subcategoryExists) {
+      Alert.alert('Error', 'Subcategory not found. Please refresh the list and try again.');
+      return;
+    }
+    
+    Alert.alert(
+      'Delete Subcategory',
+      'Are you sure you want to delete this subcategory? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await categoryApi.deleteSubCategory(token, subCategoryId);
+              // Remove the subcategory from local state immediately
+              setSubCategories(prev => prev.filter(sub => sub.sub_category_id !== subCategoryId));
+              // Refresh the subcategories list
+              if (selectedCategoryForSub) {
+                fetchSubCategories(selectedCategoryForSub);
+              }
+            } catch (err) {
+              console.error('Error deleting subcategory:', err);
+              const errorMessage = err instanceof Error ? err.message : 'Failed to delete subcategory. Please try again.';
+              Alert.alert('Error', errorMessage);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleDeleteCategory = async (categoryId: number) => {
+    if (!token) return;
+    
+    Alert.alert(
+      'Delete Category',
+      'Are you sure you want to delete this category? This will also delete all its subcategories. This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await categoryApi.deleteCategory(token, categoryId);
+              fetchCategories();
+            } catch (err) {
+              console.error('Error deleting category:', err);
+              Alert.alert('Error', 'Failed to delete category. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Add new date picker modal component
+  const DatePickerModal = () => (
+    <Modal
+      visible={datePickerModalVisible}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setDatePickerModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContent, { backgroundColor: cardBackgroundColor, padding: 20 }]}>
+          <View style={styles.modalHeader}>
+            <ThemedText style={styles.modalTitle}>Select Date</ThemedText>
+            <TouchableOpacity onPress={() => setDatePickerModalVisible(false)}>
+              <IconSymbol name="xmark.circle.fill" size={24} color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} />
+            </TouchableOpacity>
+          </View>
+          
+          <DateTimePicker
+            value={tempDate}
+            mode="date"
+            display="default"
+            onChange={(_event: unknown, selectedDate?: Date) => {
+              if (selectedDate) {
+                setTempDate(selectedDate);
+                setNewTransaction({ ...newTransaction, transaction_date: selectedDate.toISOString().split('T')[0] });
+                setDatePickerModalVisible(false);
+              }
+            }}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor }}>
+    // <SafeAreaView style={{ flex: 1, backgroundColor }}>
       <ScrollView style={styles.container}>
         <ThemedText style={styles.header}>Monthly Churn</ThemedText>
         
@@ -337,8 +665,8 @@ export default function MonthlyChurnScreen() {
               {isEditingSummary ? (
                 <TextInput
                   style={[styles.summaryInput, { color: isDark ? '#fff' : '#000' }]}
-                  value={editableSummary.income.toString()}
-                  onChangeText={(text) => setEditableSummary({...editableSummary, income: parseInt(text) || 0})}
+                  value={monthlySummary.income.toString()}
+                  onChangeText={(text) => setMonthlySummary({...monthlySummary, income: parseInt(text) || 0})}
                   keyboardType="numeric"
                 />
               ) : (
@@ -349,46 +677,19 @@ export default function MonthlyChurnScreen() {
             <View style={styles.summaryItem}>
               <IconSymbol name="arrow.up.circle.fill" size={24} color={isDark ? '#EF4444' : '#F87171'} />
               <ThemedText style={styles.summaryLabel}>Expenses</ThemedText>
-              {isEditingSummary ? (
-                <TextInput
-                  style={[styles.summaryInput, { color: isDark ? '#fff' : '#000' }]}
-                  value={editableSummary.expenses.toString()}
-                  onChangeText={(text) => setEditableSummary({...editableSummary, expenses: parseInt(text) || 0})}
-                  keyboardType="numeric"
-                />
-              ) : (
-                <ThemedText style={styles.summaryValue}>₹{monthlySummary.expenses.toLocaleString()}</ThemedText>
-              )}
+              <ThemedText style={styles.summaryValue}>₹{monthlySummary.expenses.toLocaleString()}</ThemedText>
             </View>
             
             <View style={styles.summaryItem}>
               <IconSymbol name="chart.bar.fill" size={24} color={isDark ? '#8B5CF6' : '#A78BFA'} />
               <ThemedText style={styles.summaryLabel}>Invested</ThemedText>
-              {isEditingSummary ? (
-                <TextInput
-                  style={[styles.summaryInput, { color: isDark ? '#fff' : '#000' }]}
-                  value={editableSummary.invested.toString()}
-                  onChangeText={(text) => setEditableSummary({...editableSummary, invested: parseInt(text) || 0})}
-                  keyboardType="numeric"
-                />
-              ) : (
-                <ThemedText style={styles.summaryValue}>₹{monthlySummary.invested.toLocaleString()}</ThemedText>
-              )}
+              <ThemedText style={styles.summaryValue}>₹{monthlySummary.invested.toLocaleString()}</ThemedText>
             </View>
             
             <View style={styles.summaryItem}>
               <IconSymbol name="chart.pie.fill" size={24} color={isDark ? '#4361EE' : '#3D5AF1'} />
               <ThemedText style={styles.summaryLabel}>Net</ThemedText>
-              {isEditingSummary ? (
-                <TextInput
-                  style={[styles.summaryInput, { color: isDark ? '#fff' : '#000' }]}
-                  value={editableSummary.net.toString()}
-                  onChangeText={(text) => setEditableSummary({...editableSummary, net: parseInt(text) || 0})}
-                  keyboardType="numeric"
-                />
-              ) : (
-                <ThemedText style={styles.summaryValue}>₹{monthlySummary.net.toLocaleString()}</ThemedText>
-              )}
+              <ThemedText style={styles.summaryValue}>₹{monthlySummary.net.toLocaleString()}</ThemedText>
             </View>
           </View>
           
@@ -405,29 +706,7 @@ export default function MonthlyChurnScreen() {
         {/* Card 2: Aggregated Bar Graph */}
         <Card style={styles.card}>
           <ThemedText style={styles.cardTitle}>Spending by Category</ThemedText>
-          <View style={styles.barGraphContainer}>
-            {categoryData.map((item) => {
-              // Calculate bar height based on proportion of max value
-              const barWidth = `${(item.amount / maxCategoryAmount) * 90}%`;
-              return (
-                <View key={item.category} style={styles.barGroup}>
-                  <ThemedText style={styles.barLabel}>{item.category}</ThemedText>
-                  <View style={styles.barContainer}>
-                    <View 
-                      style={[
-                        styles.bar, 
-                        { 
-                          width: barWidth as DimensionValue,
-                          backgroundColor: isDark ? '#4361EE' : '#3D5AF1'
-                        }
-                      ]} 
-                    />
-                    <ThemedText style={styles.barValue}>₹{item.amount}</ThemedText>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
+          <SpendingByCategory />
         </Card>
         
         {/* Tab selector for Transactions/Investments */}
@@ -475,7 +754,7 @@ export default function MonthlyChurnScreen() {
                 style={styles.tableRow}
                 onPress={() => handleTransactionPress(transaction)}
               >
-                <ThemedText style={[styles.tableCell, { flex: 1.2 }]}>{transaction.transaction_date}</ThemedText>
+                <ThemedText style={[styles.tableCell, { flex: 1.2 }]}>{formatDate(transaction.transaction_date)}</ThemedText>
                 <ThemedText style={[styles.tableCell, { flex: 1.5 }]}>
                   {categories.find(c => c.category_id === transaction.category_id)?.category_name || 'Unknown'}
                 </ThemedText>
@@ -513,7 +792,7 @@ export default function MonthlyChurnScreen() {
             {/* Investment rows */}
             {investmentData.map((investment) => (
               <View key={investment.investment_id} style={styles.tableRow}>
-                <ThemedText style={[styles.tableCell, { flex: 1.2 }]}>{investment.investment_date}</ThemedText>
+                <ThemedText style={[styles.tableCell, { flex: 1.2 }]}>{formatDate(investment.investment_date)}</ThemedText>
                 <ThemedText style={[styles.tableCell, { flex: 1.5 }]}>{investment.type}</ThemedText>
                 <ThemedText style={[styles.tableCell, { flex: 1.5 }]}>{investment.name}</ThemedText>
                 <ThemedText style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{investment.amount}</ThemedText>
@@ -524,7 +803,7 @@ export default function MonthlyChurnScreen() {
         
         {/* Card 4: Edit Categories */}
         <Card style={styles.card}>
-          <TouchableOpacity onPress={() => setEditCategoriesModalVisible(true)}>
+          <TouchableOpacity onPress={handleEditCategoriesModalOpen}>
             <View style={styles.linkContainer}>
               <IconSymbol 
                 name="square.grid.2x2.fill" 
@@ -561,7 +840,7 @@ export default function MonthlyChurnScreen() {
                 <ScrollView style={styles.modalScrollView}>
                   <View style={styles.modalItem}>
                     <ThemedText style={styles.modalLabel}>Date</ThemedText>
-                    <ThemedText style={styles.modalValue}>{selectedTransaction.transaction_date}</ThemedText>
+                    <ThemedText style={styles.modalValue}>{formatDate(selectedTransaction.transaction_date)}</ThemedText>
                   </View>
                   
                   <View style={styles.modalItem}>
@@ -615,12 +894,45 @@ export default function MonthlyChurnScreen() {
                   </View>
                 </ScrollView>
                 
-                <TouchableOpacity
-                  style={[styles.modalButton, { backgroundColor: isDark ? '#4361EE' : '#3D5AF1' }]}
-                  onPress={() => setTransactionModalVisible(false)}
-                >
-                  <ThemedText style={styles.modalButtonText}>Close</ThemedText>
-                </TouchableOpacity>
+                <View style={styles.modalButtonRow}>
+                  <TouchableOpacity
+                    style={[styles.modalDeleteButton, { backgroundColor: isDark ? '#EF4444' : '#F87171' }]}
+                    onPress={() => {
+                      Alert.alert(
+                        'Delete Transaction',
+                        'Are you sure you want to delete this transaction? This action cannot be undone.',
+                        [
+                          {
+                            text: 'Cancel',
+                            style: 'cancel'
+                          },
+                          {
+                            text: 'Delete',
+                            style: 'destructive',
+                            onPress: async () => {
+                              try {
+                                await deleteTransaction(selectedTransaction.transaction_id);
+                                setTransactionModalVisible(false);
+                              } catch (err) {
+                                console.error('Error deleting transaction:', err);
+                                Alert.alert('Error', 'Failed to delete transaction. Please try again.');
+                              }
+                            }
+                          }
+                        ]
+                      );
+                    }}
+                  >
+                    <IconSymbol name="trash" size={20} color="#fff" />
+                    <ThemedText style={styles.modalDeleteButtonText}>Delete</ThemedText>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalButton, { backgroundColor: isDark ? '#4361EE' : '#3D5AF1' }]}
+                    onPress={() => setTransactionModalVisible(false)}
+                  >
+                    <ThemedText style={styles.modalButtonText}>Close</ThemedText>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
           )}
@@ -643,32 +955,93 @@ export default function MonthlyChurnScreen() {
               </View>
               
               <ScrollView style={styles.modalScrollView}>
-                {/* Date Picker */}
+                {/* Transaction Type Selection */}
+                <View style={styles.formItem}>
+                  <ThemedText style={styles.formLabel}>Transaction Type *</ThemedText>
+                  <View style={styles.radioGroup}>
+                    <TouchableOpacity 
+                      style={[
+                        styles.radioButton,
+                        newTransaction.transaction_type === 0 && styles.radioButtonSelected,
+                        { borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }
+                      ]}
+                      onPress={() => setNewTransaction({ ...newTransaction, transaction_type: 0 })}
+                    >
+                      <View style={[
+                        styles.radioCircle,
+                        newTransaction.transaction_type === 0 && styles.radioCircleSelected,
+                        { backgroundColor: isDark ? '#4361EE' : '#3D5AF1' }
+                      ]}>
+                        {newTransaction.transaction_type === 0 && (
+                          <IconSymbol name="checkmark" size={16} color="#fff" />
+                        )}
+                      </View>
+                      <ThemedText style={styles.radioLabel}>Debit</ThemedText>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[
+                        styles.radioButton,
+                        newTransaction.transaction_type === 1 && styles.radioButtonSelected,
+                        { borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }
+                      ]}
+                      onPress={() => setNewTransaction({ ...newTransaction, transaction_type: 1 })}
+                    >
+                      <View style={[
+                        styles.radioCircle,
+                        newTransaction.transaction_type === 1 && styles.radioCircleSelected,
+                        { backgroundColor: isDark ? '#4361EE' : '#3D5AF1' }
+                      ]}>
+                        {newTransaction.transaction_type === 1 && (
+                          <IconSymbol name="checkmark" size={16} color="#fff" />
+                        )}
+                      </View>
+                      <ThemedText style={styles.radioLabel}>Credit</ThemedText>
+                    </TouchableOpacity>
+                  </View>
+                  {formErrors.transaction_type && <ThemedText style={styles.errorText}>{formErrors.transaction_type}</ThemedText>}
+                </View>
+
+                {/* Date Selection */}
                 <View style={styles.formItem}>
                   <ThemedText style={styles.formLabel}>Date *</ThemedText>
-                  <TouchableOpacity onPress={() => setShowDatePicker(true)}>
-                    <TextInput
-                      style={[styles.formInput, { color: isDark ? '#fff' : '#000' }]}
-                      value={newTransaction.transaction_date}
-                      editable={false}
-                      pointerEvents="none"
+                  <TouchableOpacity 
+                    style={[styles.formInput, { 
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }]}
+                    onPress={() => {
+                      setTempDate(new Date(newTransaction.transaction_date));
+                      setDatePickerModalVisible(true);
+                    }}
+                  >
+                    <ThemedText style={{ color: isDark ? '#fff' : '#000' }}>
+                      {formatDate(newTransaction.transaction_date)}
+                    </ThemedText>
+                    <IconSymbol 
+                      name="calendar" 
+                      size={20} 
+                      color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} 
                     />
                   </TouchableOpacity>
-                  {showDatePicker && (
-                    <DateTimePicker
-                      value={new Date(newTransaction.transaction_date)}
-                      mode="date"
-                      display="default"
-                      onChange={(_event: unknown, selectedDate?: Date) => {
-                        setShowDatePicker(false);
-                        if (selectedDate) {
-                          setNewTransaction({ ...newTransaction, transaction_date: selectedDate.toISOString().split('T')[0] });
-                        }
-                      }}
-                    />
-                  )}
-                  {formErrors.transaction_date && <ThemedText style={{ color: 'red' }}>{formErrors.transaction_date}</ThemedText>}
+                  {formErrors.transaction_date && <ThemedText style={styles.errorText}>{formErrors.transaction_date}</ThemedText>}
                 </View>
+
+                {datePickerModalVisible && (
+                  <DateTimePicker
+                    value={tempDate}
+                    mode="date"
+                    display="default"
+                    onChange={(_event: unknown, selectedDate?: Date) => {
+                      setDatePickerModalVisible(false);
+                      if (selectedDate) {
+                        setTempDate(selectedDate);
+                        setNewTransaction({ ...newTransaction, transaction_date: selectedDate.toISOString().split('T')[0] });
+                      }
+                    }}
+                  />
+                )}
                 {/* Category Selection */}
                 <View style={styles.formItem}>
                   <ThemedText style={styles.formLabel}>Category *</ThemedText>
@@ -873,71 +1246,107 @@ export default function MonthlyChurnScreen() {
         >
           <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, styles.addModalContent, { backgroundColor: Colors[colorScheme].card }]}>
-              <ThemedText style={styles.modalTitle}>Add Investment</ThemedText>
+              <View style={styles.modalHeader}>
+                <ThemedText style={styles.modalTitle}>Add Investment</ThemedText>
+                <TouchableOpacity onPress={() => setAddInvestmentModalVisible(false)}>
+                  <IconSymbol name="xmark.circle.fill" size={24} color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} />
+                </TouchableOpacity>
+              </View>
               
               <ScrollView style={styles.formContainer}>
-                <View style={styles.inputGroup}>
-                  <ThemedText style={styles.inputLabel}>Date *</ThemedText>
-                  <TextInput
-                    style={[styles.input, { color: isDark ? '#FFFFFF' : '#000000', borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }]}
-                    value={newInvestment.investment_date}
-                    onChangeText={(text) => handleInvestmentChange('investment_date', text)}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
-                  />
-                  {/* Ideally, this would be a date picker */}
+                {/* Date Selection */}
+                <View style={styles.formItem}>
+                  <ThemedText style={styles.formLabel}>Date *</ThemedText>
+                  <TouchableOpacity 
+                    style={[styles.formInput, { 
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }]}
+                    onPress={() => setInvestmentDatePickerVisible(true)}
+                  >
+                    <ThemedText style={{ color: isDark ? '#fff' : '#000' }}>
+                      {formatDate(newInvestment.investment_date)}
+                    </ThemedText>
+                    <IconSymbol 
+                      name="calendar" 
+                      size={20} 
+                      color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} 
+                    />
+                  </TouchableOpacity>
                 </View>
-                
-                <View style={styles.inputGroup}>
-                  <ThemedText style={styles.inputLabel}>Type *</ThemedText>
-                  <TextInput
-                    style={[styles.input, { color: isDark ? '#FFFFFF' : '#000000', borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }]}
-                    value={newInvestment.type}
-                    onChangeText={(text) => handleInvestmentChange('type', text)}
-                    placeholder="Investment type"
-                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
+
+                {investmentDatePickerVisible && (
+                  <DateTimePicker
+                    value={new Date(newInvestment.investment_date)}
+                    mode="date"
+                    display="default"
+                    onChange={(_event: unknown, selectedDate?: Date) => {
+                      setInvestmentDatePickerVisible(false);
+                      if (selectedDate) {
+                        setNewInvestment({ ...newInvestment, investment_date: selectedDate.toISOString().split('T')[0] });
+                      }
+                    }}
                   />
-                  {/* Ideally, this would be a dropdown */}
+                )}
+
+                {/* Investment Type */}
+                <View style={styles.formItem}>
+                  <ThemedText style={styles.formLabel}>Type *</ThemedText>
+                  <View style={[styles.formInput, { padding: 0 }]}>
+                    <Picker
+                      selectedValue={newInvestment.type}
+                      onValueChange={(value) => setNewInvestment({ ...newInvestment, type: value })}
+                      style={{ color: isDark ? '#fff' : '#000' }}
+                    >
+                      <Picker.Item label="Select type" value="" />
+                      {INVESTMENT_TYPES.map((type) => (
+                        <Picker.Item key={type} label={type} value={type} />
+                      ))}
+                    </Picker>
+                  </View>
                 </View>
-                
-                <View style={styles.inputGroup}>
-                  <ThemedText style={styles.inputLabel}>Name *</ThemedText>
+
+                {/* Investment Name */}
+                <View style={styles.formItem}>
+                  <ThemedText style={styles.formLabel}>Name *</ThemedText>
                   <TextInput
-                    style={[styles.input, { color: isDark ? '#FFFFFF' : '#000000', borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }]}
+                    style={[styles.formInput, { color: isDark ? '#fff' : '#000' }]}
+                    placeholder="Enter investment name"
+                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
                     value={newInvestment.name}
-                    onChangeText={(text) => handleInvestmentChange('name', text)}
-                    placeholder="Investment name"
-                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
+                    onChangeText={(text) => setNewInvestment({ ...newInvestment, name: text })}
                   />
                 </View>
-                
-                <View style={styles.inputGroup}>
-                  <ThemedText style={styles.inputLabel}>Amount (₹) *</ThemedText>
+
+                {/* Amount */}
+                <View style={styles.formItem}>
+                  <ThemedText style={styles.formLabel}>Amount ({currencySymbol}) *</ThemedText>
                   <TextInput
-                    style={[styles.input, { color: isDark ? '#FFFFFF' : '#000000', borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }]}
-                    value={newInvestment.amount.toString()}
-                    onChangeText={(text) => handleInvestmentChange('amount', text)}
-                    keyboardType="numeric"
-                    placeholder="Enter amount"
+                    style={[styles.formInput, { color: isDark ? '#fff' : '#000' }]}
+                    placeholder={`Enter amount in ${currencySymbol}`}
                     placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
+                    keyboardType="numeric"
+                    value={newInvestment.amount ? newInvestment.amount.toString() : ''}
+                    onChangeText={(text) => setNewInvestment({ ...newInvestment, amount: parseFloat(text) || 0 })}
                   />
                 </View>
-                
+
                 <ThemedText style={styles.requiredNote}>* Required fields</ThemedText>
               </ScrollView>
-              
-              <View style={styles.modalButtons}>
-                <TouchableOpacity 
-                  style={[styles.modalButton, styles.cancelButton]} 
+
+              <View style={styles.modalButtonRow}>
+                <TouchableOpacity
+                  style={[styles.modalCancelButton, { borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }]}
                   onPress={() => setAddInvestmentModalVisible(false)}
                 >
-                  <ThemedText style={styles.buttonText}>Cancel</ThemedText>
+                  <ThemedText style={styles.modalCancelButtonText}>Cancel</ThemedText>
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.modalButton, styles.saveButton]} 
+                <TouchableOpacity
+                  style={[styles.modalSaveButton, { backgroundColor: isDark ? '#4361EE' : '#3D5AF1' }]}
                   onPress={addInvestment}
                 >
-                  <ThemedText style={styles.buttonText}>Add</ThemedText>
+                  <ThemedText style={styles.modalSaveButtonText}>Add</ThemedText>
                 </TouchableOpacity>
               </View>
             </View>
@@ -961,39 +1370,103 @@ export default function MonthlyChurnScreen() {
               </View>
               
               <ScrollView style={styles.formContainer}>
-                {Object.entries(availableSubCategories).map(([category, subcategories]) => (
-                  <View key={category} style={styles.categorySection}>
-                    <View style={styles.categoryHeader}>
-                      <ThemedText style={styles.categoryTitle}>{category}</ThemedText>
-                      <TouchableOpacity style={styles.editIcon}>
-                        <IconSymbol name="pencil" size={16} color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} />
+                {/* Add New Category Section */}
+                <View style={styles.categorySection}>
+                  <View style={styles.categoryHeader}>
+                    <ThemedText style={styles.categoryTitle}>Add New Category</ThemedText>
+                    <TouchableOpacity 
+                      style={styles.editIcon}
+                      onPress={() => setIsAddingCategory(!isAddingCategory)}
+                    >
+                      <IconSymbol 
+                        name={isAddingCategory ? "minus.circle" : "plus.circle"} 
+                        size={20} 
+                        color={isDark ? '#10B981' : '#22C55E'} 
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  
+                  {isAddingCategory && (
+                    <View style={styles.addCategoryForm}>
+                      <TextInput
+                        style={[styles.input, { color: isDark ? '#FFFFFF' : '#000000' }]}
+                        placeholder="Enter category name"
+                        placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
+                        value={newCategoryName}
+                        onChangeText={setNewCategoryName}
+                      />
+                      <TouchableOpacity
+                        style={[styles.addButton, { backgroundColor: isDark ? '#10B981' : '#22C55E' }]}
+                        onPress={handleAddCategory}
+                      >
+                        <ThemedText style={styles.addButtonText}>Add Category</ThemedText>
                       </TouchableOpacity>
                     </View>
-                    
+                  )}
+                </View>
+
+                {/* Categories List */}
+                {categories.map((category) => (
+                  <View key={category.category_id} style={styles.categorySection}>
+                    <View style={styles.categoryHeader}>
+                      <ThemedText style={styles.categoryTitle}>{category.category_name}</ThemedText>
+                      <View style={styles.categoryActions}>
+                        <TouchableOpacity 
+                          style={styles.editIcon}
+                          onPress={() => handleCategorySelect(category.category_id)}
+                        >
+                          <IconSymbol 
+                            name={isAddingSubCategory && selectedCategoryForSub === category.category_id ? "minus.circle" : "plus.circle"} 
+                            size={20} 
+                            color={isDark ? '#10B981' : '#22C55E'} 
+                          />
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                          style={styles.deleteIcon}
+                          onPress={() => handleDeleteCategory(category.category_id)}
+                        >
+                          <IconSymbol name="trash" size={20} color={isDark ? '#EF4444' : '#F87171'} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    {/* Add Subcategory Form */}
+                    {isAddingSubCategory && selectedCategoryForSub === category.category_id && (
+                      <View style={styles.addSubcategoryForm}>
+                        <TextInput
+                          style={[styles.input, { color: isDark ? '#FFFFFF' : '#000000' }]}
+                          placeholder="Enter subcategory name"
+                          placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
+                          value={newSubCategoryName}
+                          onChangeText={setNewSubCategoryName}
+                        />
+                        <TouchableOpacity
+                          style={[styles.addButton, { backgroundColor: isDark ? '#10B981' : '#22C55E' }]}
+                          onPress={handleAddSubCategory}
+                        >
+                          <ThemedText style={styles.addButtonText}>Add Subcategory</ThemedText>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {/* Subcategories List */}
                     <View style={styles.subcategoryList}>
-                      {subcategories.map(subcategory => (
-                        <View key={subcategory} style={styles.subcategoryItem}>
-                          <ThemedText style={styles.subcategoryText}>{subcategory}</ThemedText>
-                          <TouchableOpacity style={styles.deleteIcon}>
-                            <IconSymbol name="trash" size={16} color={isDark ? '#EF4444' : '#F87171'} />
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                      
-                      <TouchableOpacity style={styles.addSubcategoryButton}>
-                        <IconSymbol name="plus.circle" size={16} color={isDark ? '#10B981' : '#22C55E'} />
-                        <ThemedText style={styles.addSubcategoryText}>Add Subcategory</ThemedText>
-                      </TouchableOpacity>
+                      {subCategories
+                        .filter(sub => sub.category_id === category.category_id)
+                        .map(subcategory => (
+                          <View key={subcategory.sub_category_id} style={styles.subcategoryItem}>
+                            <ThemedText style={styles.subcategoryText}>{subcategory.sub_category_name}</ThemedText>
+                            <TouchableOpacity 
+                              style={styles.deleteIcon}
+                              onPress={() => handleDeleteSubCategory(subcategory.sub_category_id)}
+                            >
+                              <IconSymbol name="trash" size={16} color={isDark ? '#EF4444' : '#F87171'} />
+                            </TouchableOpacity>
+                          </View>
+                        ))}
                     </View>
                   </View>
                 ))}
-                
-                <TouchableOpacity 
-                  style={[styles.addCategoryButton, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }]}
-                >
-                  <IconSymbol name="plus.circle.fill" size={20} color={isDark ? '#10B981' : '#22C55E'} />
-                  <ThemedText style={styles.addCategoryText}>Add New Category</ThemedText>
-                </TouchableOpacity>
               </ScrollView>
               
               <TouchableOpacity
@@ -1005,15 +1478,20 @@ export default function MonthlyChurnScreen() {
             </View>
           </View>
         </Modal>
+
+        {/* DatePickerModal component */}
+        <DatePickerModal />
       </ScrollView>
-    </SafeAreaView>
+    // </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
+    paddingHorizontal: 20,
+    paddingBlock: 30,
+    marginBottom:80
   },
   header: {
     fontSize: 24,
@@ -1076,24 +1554,35 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   barGroup: {
-    marginBottom: 12,
+    marginBottom: 16,
+  },
+  barRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
   },
   barLabel: {
     fontSize: 14,
-    marginBottom: 4,
+    flex: 1,
+  },
+  barValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 8,
+    flexShrink: 0,
+    maxWidth: 100,
+    textAlign: 'right',
   },
   barContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 24,
+    height: 16,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 8,
+    overflow: 'hidden',
   },
   bar: {
     height: '100%',
-    borderRadius: 4,
-  },
-  barValue: {
-    marginLeft: 8,
-    fontSize: 14,
+    borderRadius: 8,
   },
   // Table styles
   cardHeaderRow: {
@@ -1108,11 +1597,13 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 4,
+    padding: 8,
+    marginTop: 8,
   },
   addButtonText: {
     color: '#fff',
     marginLeft: 4,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   tableHeader: {
     flexDirection: 'row',
@@ -1215,6 +1706,20 @@ const styles = StyleSheet.create({
   modalButtonRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: 12,
+  },
+  modalDeleteButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  modalDeleteButtonText: {
+    color: '#fff',
+    fontWeight: '600',
   },
   modalCancelButton: {
     flex: 1,
@@ -1452,5 +1957,57 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontSize: 12,
     marginTop: 4,
+  },
+  addCategoryForm: {
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  addSubcategoryForm: {
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  categoryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  chartContainer: {
+    marginTop: 12,
+  },
+  noDataText: {
+    fontSize: 14,
+    opacity: 0.6,
+    textAlign: 'center',
+  },
+  radioGroup: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 8,
+  },
+  radioButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+  },
+  radioButtonSelected: {
+    borderColor: '#4361EE',
+  },
+  radioCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioCircleSelected: {
+    borderColor: '#fff',
+  },
+  radioLabel: {
+    fontSize: 16,
   },
 }); 

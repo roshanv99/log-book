@@ -5,6 +5,7 @@ import userRoutes from './routes/userRoutes';
 import transactionRoutes from './routes/transactionRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import currencyRoutes from './routes/currencyRoutes';
+import investmentRoutes from './routes/investmentRoutes';
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './swagger';
@@ -27,6 +28,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/currencies', currencyRoutes);
+app.use('/api/investments', investmentRoutes);
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Simple health check route

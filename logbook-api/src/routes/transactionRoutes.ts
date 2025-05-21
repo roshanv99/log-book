@@ -3,7 +3,9 @@ import {
   addTransaction,
   updateTransaction,
   deleteTransaction,
-  getUserTransactionsForCurrentPeriod
+  getUserTransactionsForCurrentPeriod,
+  getCategoryAggregatesForCurrentPeriod,
+  upsertIncomeForCurrentPeriod
 } from '../controllers/transactionController';
 import { authMiddleware } from '../middleware/authMiddleware';
 
@@ -13,5 +15,7 @@ router.post('/', authMiddleware, addTransaction);
 router.put('/:id', authMiddleware, updateTransaction);
 router.delete('/:id', authMiddleware, deleteTransaction);
 router.get('/current-period', authMiddleware, getUserTransactionsForCurrentPeriod);
+router.get('/category-aggregates', authMiddleware, getCategoryAggregatesForCurrentPeriod);
+router.post('/income', authMiddleware, upsertIncomeForCurrentPeriod);
 
 export default router; 

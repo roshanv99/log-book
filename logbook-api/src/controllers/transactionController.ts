@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import pool from '../config/db';
+import transactionService from '../services/transactionService';
 
 /**
  * @swagger
@@ -56,35 +56,8 @@ import pool from '../config/db';
  */
 export const addTransaction = async (req: Request, res: Response) => {
   try {
-    const {
-      transaction_date,
-      category_id,
-      sub_category_id,
-      transaction_name,
-      amount,
-      currency_id,
-      seller_name,
-      discount_amount,
-      discount_origin,
-      comments,
-      user_id,
-      transaction_type,
-      is_income
-    } = req.body;
-
-    const result = await pool.query(
-      `INSERT INTO transactions (
-        transaction_date, category_id, sub_category_id, transaction_name, amount, currency_id,
-        seller_name, discount_amount, discount_origin, comments, user_id, transaction_type, is_income
-      ) VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
-      ) RETURNING *`,
-      [
-        transaction_date, category_id, sub_category_id, transaction_name, amount, currency_id,
-        seller_name, discount_amount, discount_origin, comments, user_id, transaction_type, is_income
-      ]
-    );
-    res.status(201).json({ transaction: result.rows[0] });
+    const transaction = await transactionService.addTransaction(req.body);
+    res.status(201).json({ transaction });
   } catch (error) {
     console.error('Add transaction error:', error);
     res.status(500).json({ message: 'Failed to add transaction' });
@@ -151,51 +124,13 @@ export const addTransaction = async (req: Request, res: Response) => {
 export const updateTransaction = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const {
-      transaction_date,
-      category_id,
-      sub_category_id,
-      transaction_name,
-      amount,
-      currency_id,
-      seller_name,
-      discount_amount,
-      discount_origin,
-      comments,
-      user_id,
-      transaction_type,
-      is_income
-    } = req.body;
-
-    const result = await pool.query(
-      `UPDATE transactions SET
-        transaction_date = $1,
-        category_id = $2,
-        sub_category_id = $3,
-        transaction_name = $4,
-        amount = $5,
-        currency_id = $6,
-        seller_name = $7,
-        discount_amount = $8,
-        discount_origin = $9,
-        comments = $10,
-        user_id = $11,
-        transaction_type = $12,
-        is_income = $13,
-        updated_at = NOW()
-      WHERE transaction_id = $14
-      RETURNING *`,
-      [
-        transaction_date, category_id, sub_category_id, transaction_name, amount, currency_id,
-        seller_name, discount_amount, discount_origin, comments, user_id, transaction_type, is_income, id
-      ]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Transaction not found' });
-    }
-    res.json({ transaction: result.rows[0] });
+    const transaction = await transactionService.updateTransaction(Number(id), req.body);
+    res.json({ transaction });
   } catch (error) {
     console.error('Update transaction error:', error);
+    if (error instanceof Error && error.message === 'Transaction not found') {
+      return res.status(404).json({ message: error.message });
+    }
     res.status(500).json({ message: 'Failed to update transaction' });
   }
 };
@@ -226,16 +161,13 @@ export const updateTransaction = async (req: Request, res: Response) => {
 export const deleteTransaction = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const result = await pool.query(
-      'DELETE FROM transactions WHERE transaction_id = $1 RETURNING *',
-      [id]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Transaction not found' });
-    }
-    res.json({ message: 'Transaction deleted', transaction: result.rows[0] });
+    const transaction = await transactionService.deleteTransaction(Number(id));
+    res.json({ message: 'Transaction deleted', transaction });
   } catch (error) {
     console.error('Delete transaction error:', error);
+    if (error instanceof Error && error.message === 'Transaction not found') {
+      return res.status(404).json({ message: error.message });
+    }
     res.status(500).json({ message: 'Failed to delete transaction' });
   }
 };
@@ -256,52 +188,106 @@ export const deleteTransaction = async (req: Request, res: Response) => {
  */
 export const getUserTransactionsForCurrentPeriod = async (req: Request, res: Response) => {
   try {
-    // Get userId from auth middleware
     const userId = req.user?.userId;
     if (!userId) {
       return res.status(401).json({ message: 'Unauthorized' });
     }
 
-    // Get user's monthly_start_date
-    const userResult = await pool.query(
-      'SELECT monthly_start_date FROM users WHERE user_id = $1',
-      [userId]
-    );
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-    const monthlyStartDate = userResult.rows[0].monthly_start_date;
-    if (!monthlyStartDate) {
-      return res.status(400).json({ message: 'monthly_start_date not set for user' });
-    }
-
-    // Calculate the start date in SQL
-    // The logic:
-    // - If monthly_start_date > today, use previous month (and fallback to last day if needed)
-    // - Else, use this month
-    // We'll use PostgreSQL date functions for this
-    const transactionsResult = await pool.query(`
-      SELECT * FROM transactions
-      WHERE user_id = $1
-        AND transaction_date >= (
-          CASE
-            WHEN $2 > EXTRACT(DAY FROM CURRENT_DATE)
-              THEN
-                -- Previous month, fallback to last day if needed
-                ((DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 day')::date
-                 - ((EXTRACT(DAY FROM (DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 day'))::int - LEAST($2, EXTRACT(DAY FROM (DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 day'))::int)) * INTERVAL '1 day'))
-              ELSE
-                -- This month
-                (DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '$2 day' - INTERVAL '1 day')::date
-          END
-        )
-        AND transaction_date <= CURRENT_DATE
-      ORDER BY transaction_date DESC
-    `, [userId, monthlyStartDate]);
-
-    res.json({ transactions: transactionsResult.rows });
+    const transactions = await transactionService.getUserTransactionsForCurrentPeriod(userId);
+    res.json({ transactions });
   } catch (error) {
     console.error('Get user transactions error:', error);
+    if (error instanceof Error) {
+      if (error.message === 'User not found') {
+        return res.status(404).json({ message: error.message });
+      }
+      if (error.message === 'monthly_start_date not set for user') {
+        return res.status(400).json({ message: error.message });
+      }
+    }
     res.status(500).json({ message: 'Failed to fetch transactions' });
+  }
+};
+
+/**
+ * @swagger
+ * /transactions/category-aggregates:
+ *   get:
+ *     summary: Get aggregated amounts by category for the current period
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Category aggregates retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 aggregates:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       category_id:
+ *                         type: integer
+ *                       category_name:
+ *                         type: string
+ *                       total_amount:
+ *                         type: number
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: User not found
+ *       400:
+ *         description: monthly_start_date not set for user
+ *       500:
+ *         description: Server error
+ */
+export const getCategoryAggregatesForCurrentPeriod = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    const aggregates = await transactionService.getCategoryAggregatesForCurrentPeriod(userId);
+    res.json({ aggregates });
+  } catch (error) {
+    console.error('Get category aggregates error:', error);
+    if (error instanceof Error) {
+      if (error.message === 'User not found') {
+        return res.status(404).json({ message: error.message });
+      }
+      if (error.message === 'monthly_start_date not set for user') {
+        return res.status(400).json({ message: error.message });
+      }
+    }
+    res.status(500).json({ message: 'Failed to fetch category aggregates' });
+  }
+};
+
+export const upsertIncomeForCurrentPeriod = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { amount } = req.body;
+    if (!userId) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+    if (typeof amount !== 'number' || isNaN(amount)) {
+      return res.status(400).json({ message: 'Amount is required and must be a number' });
+    }
+    await transactionService.upsertIncomeForCurrentPeriod(userId, amount);
+    res.status(200).json({ message: 'Income saved for current period' });
+  } catch (error) {
+    console.error('Upsert income error:', error);
+    if (error instanceof Error && error.message === 'User not found') {
+      return res.status(404).json({ message: error.message });
+    }
+    if (error instanceof Error && error.message === 'monthly_start_date not set for user') {
+      return res.status(400).json({ message: error.message });
+    }
+    res.status(500).json({ message: 'Failed to save income' });
   }
 }; 

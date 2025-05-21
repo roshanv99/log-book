@@ -28,7 +28,7 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Add response interceptor for logging
+// Add response interceptor for logging and error handling
 apiClient.interceptors.response.use(
   (response) => {
     console.log('API Response:', response.status, response.config.url);
@@ -37,14 +37,17 @@ apiClient.interceptors.response.use(
   (error) => {
     if (error.code === 'ECONNABORTED') {
       console.error('Request timeout:', error.config.url);
+      throw new Error('Request timed out. Please check your internet connection.');
     } else if (error.response) {
       console.error('API Error Response:', error.response.status, error.response.data);
+      throw new Error(error.response.data.message || 'Something went wrong');
     } else if (error.request) {
       console.error('No response received:', error.request);
+      throw new Error('No response received from server');
     } else {
       console.error('API Error:', error.message);
+      throw error;
     }
-    return Promise.reject(error);
   }
 );
 
@@ -52,10 +55,17 @@ apiClient.interceptors.response.use(
  * Helper to handle API responses
  */
 const handleResponse = async (response: Response) => {
+  // Handle 204 No Content responses first
+  if (response.status === 204) {
+    return null;
+  }
+
+  // For all other responses, check if they're ok
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.message || 'Something went wrong');
   }
+
   return response.json();
 };
 
@@ -185,6 +195,31 @@ export const transactionApi = {
     });
     return handleResponse(response);
   },
+
+  getCategoryAggregates: async (token: string): Promise<{ category_id: number; category_name: string; total_amount: number }[]> => {
+    const response = await fetch(`${API_URL}/transactions/category-aggregates`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await handleResponse(response);
+    return data.aggregates || [];
+  },
+
+  upsertIncome: async (token: string, amount: number): Promise<void> => {
+    const response = await fetch(`${API_URL}/transactions/income`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ amount }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to save income');
+    }
+  },
 };
 
 export const investmentApi = {
@@ -234,21 +269,61 @@ export const investmentApi = {
 
 export const categoryApi = {
   getCategories: async (token: string): Promise<Category[]> => {
-    const response = await fetch(`${API_URL}/categories`, {
+    const response = await apiClient.get('/categories', {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
     });
-    return handleResponse(response);
+    return response.data;
   },
 
   getSubCategories: async (token: string, categoryId: number): Promise<SubCategory[]> => {
-    const response = await fetch(`${API_URL}/categories/subcategories/${categoryId}`, {
+    const response = await apiClient.get(`/categories/subcategories/${categoryId}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
     });
-    return handleResponse(response);
+    return response.data;
+  },
+
+  addCategory: async (token: string, categoryName: string): Promise<Category> => {
+    const response = await apiClient.post('/categories', 
+      { category_name: categoryName },
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      }
+    );
+    return response.data;
+  },
+
+  addSubCategory: async (token: string, categoryId: number, subCategoryName: string): Promise<SubCategory> => {
+    const response = await apiClient.post(`/categories/${categoryId}/subcategories`,
+      { sub_category_name: subCategoryName },
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      }
+    );
+    return response.data;
+  },
+
+  deleteSubCategory: async (token: string, subCategoryId: number): Promise<void> => {
+    await apiClient.delete(`/categories/subcategories/${subCategoryId}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+  },
+
+  deleteCategory: async (token: string, categoryId: number): Promise<void> => {
+    await apiClient.delete(`/categories/${categoryId}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
   },
 };
 
