@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import pool from '../config/db';
+import categoryService from '../services/categoryService';
 
 /**
  * @swagger
@@ -67,9 +68,9 @@ export const categoryController = {
   async getCategories(req: Request, res: Response) {
     try {
       console.log('Attempting to fetch categories...');
-      const result = await pool.query('SELECT * FROM categories ORDER BY category_name');
-      console.log('Categories fetched:', result.rows);
-      res.json(result.rows);
+      const categories = await categoryService.getCategories();
+      console.log('Categories fetched:', categories);
+      res.json(categories);
     } catch (error) {
       console.error('Detailed error fetching categories:', error);
       res.status(500).json({ 
@@ -83,11 +84,8 @@ export const categoryController = {
   async getSubCategories(req: Request, res: Response) {
     try {
       const { categoryId } = req.params;
-      const result = await pool.query(
-        'SELECT * FROM sub_categories WHERE category_id = $1 ORDER BY sub_category_name',
-        [categoryId]
-      );
-      res.json(result.rows);
+      const subCategories = await categoryService.getSubCategories(Number(categoryId));
+      res.json(subCategories);
     } catch (error) {
       console.error('Error fetching subcategories:', error);
       res.status(500).json({ message: 'Error fetching subcategories' });
@@ -171,38 +169,15 @@ export const categoryController = {
   async deleteSubCategory(req: Request, res: Response) {
     try {
       const { subCategoryId } = req.params;
-
-      // Check if subcategory exists
-      const subCategory = await pool.query(
-        'SELECT * FROM sub_categories WHERE sub_category_id = $1',
-        [subCategoryId]
-      );
-
-      if (subCategory.rows.length === 0) {
-        return res.status(404).json({ message: 'Subcategory not found' });
-      }
-
-      // Check if subcategory is used in any transactions
-      const transactions = await pool.query(
-        'SELECT COUNT(*) as count FROM transactions WHERE sub_category_id = $1',
-        [subCategoryId]
-      );
-
-      if (parseInt(transactions.rows[0].count) > 0) {
-        return res.status(400).json({ 
-          message: 'Cannot delete subcategory as it is used in existing transactions' 
-        });
-      }
-
-      await pool.query(
-        'DELETE FROM sub_categories WHERE sub_category_id = $1',
-        [subCategoryId]
-      );
-
+      await categoryService.deleteSubCategory(Number(subCategoryId));
       res.status(204).send();
     } catch (error) {
       console.error('Error deleting subcategory:', error);
-      res.status(500).json({ message: 'Error deleting subcategory' });
+      if (error instanceof Error) {
+        res.status(400).json({ message: error.message });
+      } else {
+        res.status(500).json({ message: 'Error deleting subcategory' });
+      }
     }
   },
 
@@ -227,37 +202,8 @@ export const categoryController = {
       }
       console.log('Category found:', categoryResult.rows[0]);
 
-      // Check if category is used in any transactions
-      console.log('Checking if category is used in transactions...');
-      const transactionsResult = await pool.query(
-        'SELECT COUNT(*) as count FROM transactions WHERE category_id = $1',
-        [categoryId]
-      );
-      console.log('Transactions query result:', transactionsResult);
-
-      if (parseInt(transactionsResult.rows[0].count) > 0) {
-        console.log('Category is used in transactions, cannot delete');
-        return res.status(400).json({ 
-          message: 'Cannot delete category as it is used in existing transactions' 
-        });
-      }
-
-      // Delete all subcategories first (due to foreign key constraint)
-      console.log('Deleting subcategories...');
-      const deleteSubCategoriesResult = await pool.query(
-        'DELETE FROM sub_categories WHERE category_id = $1 RETURNING *',
-        [categoryId]
-      );
-      console.log('Delete subcategories result:', deleteSubCategoriesResult);
-
-      // Delete the category
-      console.log('Deleting category...');
-      const deleteCategoryResult = await pool.query(
-        'DELETE FROM categories WHERE category_id = $1 RETURNING *',
-        [categoryId]
-      );
-      console.log('Delete category result:', deleteCategoryResult);
-
+      // Use categoryService to delete the category
+      await categoryService.deleteCategory(Number(categoryId));
       console.log('Category deleted successfully');
       res.status(204).send();
     } catch (error) {

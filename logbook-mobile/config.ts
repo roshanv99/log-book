@@ -5,11 +5,11 @@ import { Platform } from 'react-native';
 // Get the environment variables from Expo constants
 const ENV = {
   dev: {
-    // Use localhost for iOS simulator, 10.0.2.2 for Android emulator, or your local IP for physical devices
+    // Use localhost for simulators, local IP for physical devices
     apiUrl: Platform.select({
-      ios: 'http://localhost:3001/api',
-      android: 'http://10.0.2.2:3001/api',
-      default: 'http://192.168.1.14:3001/api', // Fallback to your local IP
+      ios: 'http://192.168.1.3:3001/api',
+      android: Constants.isDevice ? 'xhttp://192.168.1.3:3001/api' : 'http://10.0.2.2:3001/api',
+      default: 'http://192.168.1.3:3001/api', // Fallback to your local IP
     }),
   },
   staging: {

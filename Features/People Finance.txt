@@ -1,0 +1,14 @@
+People Layout: 
+
+Card 1: 
+List of people who owe me and how much they owe me: (Postive is green, negative is red)
+- Upon clicking on this row, we get a modal with cards containing info for each transaction involved with the user and how much they owe
+
+Card 2: 
+- A search box to search by name
+- List of all people
+- An Add Button to add people: 
+    The add modal will contain: 
+        a. An Avatar/icon
+        b. Gender
+        c. Name

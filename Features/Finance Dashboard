@@ -1,0 +1,13 @@
+Finance Dashboard
+
+Card 1: Savings and Investment Charts
+- A chart that shows the savings and Investments over time
+- A dropdown to select the time period: 
+    - 6 months
+    - 12 months
+
+Card 2: A graphs that shows expenses based on category over the above selected time period
+
+Card 3: Random Text based insights. Use Filler data for now. 
+
+

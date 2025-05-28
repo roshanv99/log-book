@@ -86,13 +86,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Store token in AsyncStorage
       await AsyncStorage.setItem('logbook_token', response.token);
       
+      // Fetch user profile to get complete user data
+      const profileResponse = await userApi.getProfile(response.token);
+      
       // Map API response to our User type
       const loggedInUser: User = {
-        user_id: response.user.user_id ?? response.user.id,
-        username: response.user.username,
-        email: response.user.email,
-        currency_id: response.user.currency_id,
-        // Add other fields as needed
+        user_id: profileResponse.user.user_id,
+        username: profileResponse.user.username,
+        email: profileResponse.user.email,
+        currency_id: profileResponse.user.currency_id,
+        monthly_start_date: profileResponse.user.monthly_start_date,
+        mobile_number: profileResponse.user.mobile_number,
+        profile_pic: profileResponse.user.profile_pic
       };
       
       // Store user in AsyncStorage

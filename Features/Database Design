@@ -52,4 +52,23 @@ Users:
     11. last_login
     12. Night Mode - boolean
 
+People:
+    1. person_id
+    2. name - MANDATORY
+    3. avatar_url - OPTION
+    4. user_id - (FK, optional)
+    5. created_at
+    6. updated_at
+
+Transaction_People:
+    1. transaction_people_id
+    2. transaction_id - (FK)
+    3. person_id - (FK)
+    4. split_amount - MANDATORY
+    5. created_at
+    6. updated_at
+    7. is_paid - 0/1/-1 (0 - not paid, 1 - paid, -1 - forgiven)
+    8. item_content - JSON/JSONB - [{item_name: string, item_amount: number}]
+
+
     

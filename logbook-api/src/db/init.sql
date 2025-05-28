@@ -31,4 +31,50 @@ INSERT OR IGNORE INTO categories (category_name) VALUES
     ('Income'),
     ('Investments'),
     ('Utilities'),
-    ('Travel'); 
+    ('Travel');
+
+-- Create People table
+CREATE TABLE people (
+    person_id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    avatar_url TEXT,
+    user_id INTEGER REFERENCES users(user_id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create Transaction_People table
+CREATE TABLE transaction_people (
+    transaction_people_id SERIAL PRIMARY KEY,
+    transaction_id INTEGER REFERENCES transactions(transaction_id),
+    person_id INTEGER REFERENCES people(person_id),
+    split_amount DECIMAL(12,2) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    is_paid SMALLINT DEFAULT 0 CHECK (is_paid IN (-1, 0, 1)),
+    item_content JSONB DEFAULT '[]'::jsonb
+);
+
+-- Add indexes for better query performance
+CREATE INDEX idx_transaction_people_transaction_id ON transaction_people(transaction_id);
+CREATE INDEX idx_transaction_people_person_id ON transaction_people(person_id);
+CREATE INDEX idx_transaction_people_is_paid ON transaction_people(is_paid);
+
+-- Add trigger to update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_people_updated_at
+    BEFORE UPDATE ON people
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_transaction_people_updated_at
+    BEFORE UPDATE ON transaction_people
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column(); 

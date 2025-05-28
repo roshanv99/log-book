@@ -163,6 +163,7 @@ export const transactionApi = {
   },
 
   addTransaction: async (token: string, data: TransactionFormData): Promise<Transaction> => {
+    console.log('Adding transaction:', data);
     const response = await fetch(`${API_URL}/transactions`, {
       method: 'POST',
       headers: {
@@ -219,6 +220,30 @@ export const transactionApi = {
       const error = await response.json();
       throw new Error(error.message || 'Failed to save income');
     }
+  },
+
+  updateTransactionsCategory: async (token: string, oldCategoryId: number, newCategoryId: number): Promise<void> => {
+    const response = await fetch(`${API_URL}/transactions/update-category`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ oldCategoryId, newCategoryId }),
+    });
+    return handleResponse(response);
+  },
+
+  updateTransactionsSubCategory: async (token: string, subCategoryId: number): Promise<void> => {
+    const response = await fetch(`${API_URL}/transactions/update-subcategory`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ subCategoryId }),
+    });
+    return handleResponse(response);
   },
 };
 

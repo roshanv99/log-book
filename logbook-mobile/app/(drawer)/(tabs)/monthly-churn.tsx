@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, Modal, TextInput, DimensionValue, FlatList, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Modal, TextInput, DimensionValue, FlatList, Alert, ActivityIndicator, Text, Platform, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
@@ -15,28 +15,11 @@ import AuthContext from '@/context/AuthContext';
 import type { AuthContextType } from '@/context/AuthContext';
 import type { Transaction, Investment, Category, SubCategory, Currency, TransactionFormData, InvestmentFormData } from '@/types';
 import { useAuth } from '@/context/AuthContext';
+import { BankStatementReader } from '@/components/BankStatementReader';
+import { AddTransactionModal } from '@/components/AddTransactionModal';
+import { AddInvestmentModal } from '@/components/AddInvestmentModal';
+import { trimString, trimObjectStrings, formatNumber } from '@/utils/stringUtils';
 
-// Sample investment data
-const investmentData: Investment[] = [
-  { investment_id: 1, investment_date: '2023-06-20', type: 'Mutual Fund', name: 'SBI Blue Chip Fund', amount: 5000, currency_id: 1, user_id: '1', created_at: '2023-06-20', updated_at: '2023-06-20' },
-  { investment_id: 2, investment_date: '2023-06-15', type: 'Stocks', name: 'Reliance Industries', amount: 10000, currency_id: 1, user_id: '1', created_at: '2023-06-15', updated_at: '2023-06-15' },
-  { investment_id: 3, investment_date: '2023-06-10', type: 'Fixed Deposit', name: 'HDFC Bank FD', amount: 20000, currency_id: 1, user_id: '1', created_at: '2023-06-10', updated_at: '2023-06-10' },
-];
-
-// Sample aggregated data for bar graph
-const categoryData = [
-  { category: 'Food', amount: 5200 },
-  { category: 'Transport', amount: 3500 },
-  { category: 'Utilities', amount: 4300 },
-  { category: 'Shopping', amount: 7800 },
-  { category: 'Subscription', amount: 2100 },
-  { category: 'Entertainment', amount: 3200 },
-];
-
-// Find the maximum value for scaling the bars
-const maxCategoryAmount = Math.max(...categoryData.map(item => item.amount));
-
-// Add these constants at the top of the component
 const INVESTMENT_TYPES = [
   'Mutual Funds',
   'Stocks',
@@ -47,7 +30,7 @@ const INVESTMENT_TYPES = [
 let incomeValue:number | null = null;
 
 
-const SpendingByCategory = () => {
+const SpendingByCategory = ({ currencyId }: { currencyId: number }) => {
   const { token } = useAuth();
   const [categoryData, setCategoryData] = useState<{ category_id: number; category_name: string; total_amount: number }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -84,32 +67,34 @@ const SpendingByCategory = () => {
   const maxCategoryAmount = Math.max(...safeCategoryData.map(item => item.total_amount));
 
   return (
-    <View style={styles.chartContainer}>
-      {safeCategoryData.map((item) => {
-        const barWidth = `${(item.total_amount / maxCategoryAmount) * 80}%`;
-        return (
-          <View key={item.category_id} style={styles.barGroup}>
-            <View style={styles.barRow}>
-              <ThemedText style={styles.barLabel}>{item.category_name}</ThemedText>
-              <ThemedText style={styles.barValue} numberOfLines={1}>
-                ₹{Number(item.total_amount ?? 0).toFixed(2)}
-              </ThemedText>
+    <ScrollView style={styles.chartScrollView}>
+      <View style={styles.chartContainer}>
+        {safeCategoryData.map((item) => {
+          const barWidth = `${(item.total_amount / maxCategoryAmount) * 80}%`;
+          return (
+            <View key={item.category_id} style={styles.barGroup}>
+              <View style={styles.barRow}>
+                <ThemedText style={styles.barLabel}>{item.category_name}</ThemedText>
+                <ThemedText style={styles.barValue} numberOfLines={1}>
+                  ₹{formatNumber(Number(item.total_amount ?? 0), currencyId)}
+                </ThemedText>
+              </View>
+              <View style={styles.barContainer}>
+                <View
+                 style={[
+                  styles.bar,
+                  {
+                    width: barWidth as DimensionValue,
+                    backgroundColor: isDark ? '#4361EE' : '#3D5AF1',
+                  },
+                ]}
+                />
+              </View>
             </View>
-            <View style={styles.barContainer}>
-              <View
-               style={[
-                styles.bar,
-                {
-                  width: barWidth as DimensionValue,
-                  backgroundColor: isDark ? '#4361EE' : '#3D5AF1',
-                },
-              ]}
-              />
-            </View>
-          </View>
-        );
-      })}
-    </View>
+          );
+        })}
+      </View>
+    </ScrollView>
   );
 };
 
@@ -200,31 +185,71 @@ export default function MonthlyChurnScreen() {
   // Add this state for investment date picker
   const [investmentDatePickerVisible, setInvestmentDatePickerVisible] = useState(false);
 
+  // Add this new state for the SMS reader modal
+  const [smsReaderModalVisible, setSmsReaderModalVisible] = useState(false);
+
+  // Add to state:
+  const [iosTransactionDatePickerVisible, setIosTransactionDatePickerVisible] = useState(false);
+  const [iosInvestmentDatePickerVisible, setIosInvestmentDatePickerVisible] = useState(false);
+
   // Helper to get user's currency symbol
   const userCurrency = currencies.find(c => c.currency_id === user?.currency_id);
   const currencySymbol = userCurrency ? userCurrency.currency_symbol : '₹';
 
   // Add this helper function near the top of the component
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const day = date.getDate();
-    const month = date.toLocaleString('default', { month: 'short' });
-    
-    // Handle special cases for 11, 12, 13
-    if (day >= 11 && day <= 13) {
-      return `${day}th ${month}`;
+    try {
+      // Parse the date and get UTC components
+      const date = new Date(dateString);
+      
+      if (isNaN(date.getTime())) {
+        console.log('Invalid date detected');
+        return 'Invalid Date';
+      }
+      
+      // Get UTC day and month
+      const day = date.getUTCDate();
+      const month = date.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+      console.log('Day:', day, 'Month:', month);
+      
+      // Handle special cases for 11, 12, 13
+      if (day >= 11 && day <= 13) {
+        return `${day}th ${month}`;
+      }
+      
+      // Handle other numbers
+      let suffix = 'th';
+      if (day % 10 === 1 && day !== 11) {
+        suffix = 'st';
+      } else if (day % 10 === 2 && day !== 12) {
+        suffix = 'nd';
+      } else if (day % 10 === 3 && day !== 13) {
+        suffix = 'rd';
+      }
+      
+      const result = `${day}${suffix} ${month}`;
+      console.log('Formatted result:', result);
+      return result;
+    } catch (error) {
+      console.error('Error in formatDate:', error);
+      return 'Invalid Date';
     }
-    
-    // Handle other numbers
-    const suffix = ['th', 'st', 'nd', 'rd'][day % 10];
-    return `${day}${suffix} ${month}`;
+  };
+
+  const formatIndianNumber = (num: number): string => {
+    // Convert to integer and then to string
+    const numStr = Math.round(num).toString();
+    const lastThree = numStr.substring(numStr.length - 3);
+    const otherNumbers = numStr.substring(0, numStr.length - 3);
+    const formatted = otherNumbers.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + (otherNumbers ? "," : "") + lastThree;
+    return formatted;
   };
 
   // Validation function
   const validateTransaction = () => {
     const errors: {[key: string]: string} = {};
     if (!newTransaction.transaction_date) errors.transaction_date = 'Date is required';
-    if (!newTransaction.category_id) errors.category_id = 'Category is required';
+    if (!categorySearch) errors.category_id = 'Category is required';
     if (!newTransaction.amount || newTransaction.amount <= 0) errors.amount = 'Amount is required';
     if (newTransaction.transaction_type === undefined) errors.transaction_type = 'Transaction type is required';
     return errors;
@@ -269,7 +294,6 @@ export default function MonthlyChurnScreen() {
       const data = await transactionApi.getCurrentPeriodTransactions(token);
       setTransactions(data.filter(txn => txn.is_income === 0) || []);
       incomeValue = data.find(txn => txn.is_income === 1)?.amount || 0;
-      console.log('incomeValue', incomeValue);
     } catch (err) {
       console.error('Error fetching transactions:', err);
       setMonthlySummary({
@@ -340,6 +364,7 @@ export default function MonthlyChurnScreen() {
     fetchCategories();
     fetchCurrencies();
   }, [token]);
+  console.log('User', user);
 
   // Add new useEffect to fetch subcategories when categories change
   useEffect(() => {
@@ -347,30 +372,6 @@ export default function MonthlyChurnScreen() {
       fetchAllSubCategories();
     }
   }, [categories]);
-
-  // Modified addTransaction handler
-  const handleAddTransaction = async () => {
-    const errors = validateTransaction();
-    setFormErrors(errors);
-    if (Object.keys(errors).length > 0) return;
-    await addTransaction(newTransaction);
-  };
-
-  // Add new transaction
-  const addTransaction = async (data: TransactionFormData) => {
-    if (!token || !user?.user_id) return;
-    try {
-      await transactionApi.addTransaction(token, {
-        ...data,
-        user_id: String(user.user_id)
-      });
-      fetchTransactions();
-      setAddModalVisible(false);
-    } catch (err) {
-      console.error('Error adding transaction:', err);
-      Alert.alert('Error', 'Failed to add transaction. Please try again.');
-    }
-  };
 
   // Delete transaction
   const deleteTransaction = async (id: number) => {
@@ -475,11 +476,11 @@ export default function MonthlyChurnScreen() {
 
   // Add these helper functions inside the MonthlyChurnScreen component
   const filteredCategories = categories.filter(cat => 
-    cat.category_name.toLowerCase().includes(categorySearch.toLowerCase())
+    cat.category_name.toLowerCase().trim().includes(categorySearch.toLowerCase().trim())
   );
 
   const filteredSubCategories = subCategories.filter(sub => 
-    sub.sub_category_name.toLowerCase().includes(subCategorySearch.toLowerCase())
+    sub.sub_category_name.toLowerCase().trim().includes(subCategorySearch.toLowerCase().trim())
   );
 
   // Add handlers for category management
@@ -613,30 +614,34 @@ export default function MonthlyChurnScreen() {
       transparent={true}
       animationType="slide"
       onRequestClose={() => setDatePickerModalVisible(false)}
+      statusBarTranslucent
     >
-      <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { backgroundColor: cardBackgroundColor, padding: 20 }]}>
-          <View style={styles.modalHeader}>
-            <ThemedText style={styles.modalTitle}>Select Date</ThemedText>
-            <TouchableOpacity onPress={() => setDatePickerModalVisible(false)}>
-              <IconSymbol name="xmark.circle.fill" size={24} color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} />
-            </TouchableOpacity>
+      <SafeAreaView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} edges={['top']}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: cardBackgroundColor, padding: 20 }]}>
+            <View style={styles.modalHeader}>
+              <ThemedText style={styles.modalTitle}>Select Date</ThemedText>
+              <TouchableOpacity onPress={() => setDatePickerModalVisible(false)}>
+                <IconSymbol name="xmark.circle.fill" size={24} color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} />
+              </TouchableOpacity>
+            </View>
+            
+            <DateTimePicker
+              value={tempDate}
+              mode="date"
+              display="default"
+              onChange={(_event: unknown, selectedDate?: Date) => {
+                if (selectedDate) {
+                  setTempDate(selectedDate);
+                  setNewTransaction({ ...newTransaction, transaction_date: selectedDate.toISOString().split('T')[0] });
+                  setDatePickerModalVisible(false);
+                }
+              }}
+            />
           </View>
-          
-          <DateTimePicker
-            value={tempDate}
-            mode="date"
-            display="default"
-            onChange={(_event: unknown, selectedDate?: Date) => {
-              if (selectedDate) {
-                setTempDate(selectedDate);
-                setNewTransaction({ ...newTransaction, transaction_date: selectedDate.toISOString().split('T')[0] });
-                setDatePickerModalVisible(false);
-              }
-            }}
-          />
         </View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 
@@ -665,31 +670,35 @@ export default function MonthlyChurnScreen() {
               {isEditingSummary ? (
                 <TextInput
                   style={[styles.summaryInput, { color: isDark ? '#fff' : '#000' }]}
-                  value={monthlySummary.income.toString()}
-                  onChangeText={(text) => setMonthlySummary({...monthlySummary, income: parseInt(text) || 0})}
+                  value={formatNumber(monthlySummary.income, user?.currency_id || 1)}
+                  onChangeText={(text) => {
+                    // Remove commas and convert to number
+                    const numericValue = parseInt(text.replace(/,/g, '')) || 0;
+                    setMonthlySummary({...monthlySummary, income: numericValue});
+                  }}
                   keyboardType="numeric"
                 />
               ) : (
-                <ThemedText style={styles.summaryValue}>₹{monthlySummary.income.toLocaleString()}</ThemedText>
+                <ThemedText style={styles.summaryValue}>₹{formatNumber(monthlySummary.income, user?.currency_id || 1)}</ThemedText>
               )}
             </View>
             
             <View style={styles.summaryItem}>
               <IconSymbol name="arrow.up.circle.fill" size={24} color={isDark ? '#EF4444' : '#F87171'} />
               <ThemedText style={styles.summaryLabel}>Expenses</ThemedText>
-              <ThemedText style={styles.summaryValue}>₹{monthlySummary.expenses.toLocaleString()}</ThemedText>
+              <ThemedText style={styles.summaryValue}>₹{formatNumber(monthlySummary.expenses, user?.currency_id || 1)}</ThemedText>
             </View>
             
             <View style={styles.summaryItem}>
               <IconSymbol name="chart.bar.fill" size={24} color={isDark ? '#8B5CF6' : '#A78BFA'} />
               <ThemedText style={styles.summaryLabel}>Invested</ThemedText>
-              <ThemedText style={styles.summaryValue}>₹{monthlySummary.invested.toLocaleString()}</ThemedText>
+              <ThemedText style={styles.summaryValue}>₹{formatNumber(monthlySummary.invested, user?.currency_id || 1)}</ThemedText>
             </View>
             
             <View style={styles.summaryItem}>
               <IconSymbol name="chart.pie.fill" size={24} color={isDark ? '#4361EE' : '#3D5AF1'} />
               <ThemedText style={styles.summaryLabel}>Net</ThemedText>
-              <ThemedText style={styles.summaryValue}>₹{monthlySummary.net.toLocaleString()}</ThemedText>
+              <ThemedText style={styles.summaryValue}>₹{formatNumber(monthlySummary.net, user?.currency_id || 1)}</ThemedText>
             </View>
           </View>
           
@@ -706,7 +715,7 @@ export default function MonthlyChurnScreen() {
         {/* Card 2: Aggregated Bar Graph */}
         <Card style={styles.card}>
           <ThemedText style={styles.cardTitle}>Spending by Category</ThemedText>
-          <SpendingByCategory />
+          <SpendingByCategory currencyId={user?.currency_id || 1} />
         </Card>
         
         {/* Tab selector for Transactions/Investments */}
@@ -747,23 +756,58 @@ export default function MonthlyChurnScreen() {
               <ThemedText style={[styles.tableHeaderCell, { flex: 1, textAlign: 'right' }]}>Amount</ThemedText>
             </View>
             
-            {/* Table rows */}
-            {transactions.map((transaction) => (
-              <TouchableOpacity 
-                key={transaction.transaction_id} 
-                style={styles.tableRow}
-                onPress={() => handleTransactionPress(transaction)}
-              >
-                <ThemedText style={[styles.tableCell, { flex: 1.2 }]}>{formatDate(transaction.transaction_date)}</ThemedText>
-                <ThemedText style={[styles.tableCell, { flex: 1.5 }]}>
-                  {categories.find(c => c.category_id === transaction.category_id)?.category_name || 'Unknown'}
-                </ThemedText>
-                <ThemedText style={[styles.tableCell, { flex: 1.5 }]}>
-                  {subCategories.find(sc => sc.sub_category_id === transaction.sub_category_id)?.sub_category_name || 'Unknown'}
-                </ThemedText>
-                <ThemedText style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{transaction.amount}</ThemedText>
-              </TouchableOpacity>
-            ))}
+            {/* Table rows with ScrollView */}
+            <ScrollView style={styles.tableScrollView}>
+              {transactions.map((transaction) => (
+                <TouchableOpacity 
+                  key={transaction.transaction_id} 
+                  style={styles.tableRow}
+                  onPress={() => handleTransactionPress(transaction)}
+                >
+                  <Text style={[
+                    styles.tableCell, 
+                    { 
+                      flex: 1.2,
+                      color: transaction.transaction_type === 1 ? (isDark ? '#10B981' : '#22C55E') : (isDark ? '#fff' : '#000')
+                    }
+                  ]}>{formatDate(transaction.transaction_date)}</Text>
+                  <Text 
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    style={[
+                      styles.tableCell, 
+                      { 
+                        flex: 1.5,
+                        color: transaction.transaction_type === 1 ? (isDark ? '#10B981' : '#22C55E') : (isDark ? '#fff' : '#000')
+                      }
+                    ]}>
+                    {categories.find(c => c.category_id === transaction.category_id)?.category_name || 'Unknown'}
+                  </Text>
+                  <Text 
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    style={[
+                      styles.tableCell, 
+                      { 
+                        flex: 1.5,
+                        color: transaction.transaction_type === 1 ? (isDark ? '#10B981' : '#22C55E') : (isDark ? '#fff' : '#000')
+                      }
+                    ]}>
+                    {subCategories.find(sc => sc.sub_category_id === transaction.sub_category_id)?.sub_category_name || 'Unknown'}
+                  </Text>
+                  <Text 
+                    numberOfLines={1}
+                    style={[
+                      styles.tableCell, 
+                      { 
+                        flex: 1, 
+                        textAlign: 'right',
+                        color: transaction.transaction_type === 1 ? (isDark ? '#10B981' : '#22C55E') : (isDark ? '#fff' : '#000')
+                      }
+                    ]}>₹{formatNumber(transaction.amount, user?.currency_id || 1)}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </Card>
         )}
         
@@ -789,19 +833,59 @@ export default function MonthlyChurnScreen() {
               <ThemedText style={[styles.tableHeaderCell, { flex: 1, textAlign: 'right' }]}>Amount</ThemedText>
             </View>
             
-            {/* Investment rows */}
-            {investmentData.map((investment) => (
-              <View key={investment.investment_id} style={styles.tableRow}>
-                <ThemedText style={[styles.tableCell, { flex: 1.2 }]}>{formatDate(investment.investment_date)}</ThemedText>
-                <ThemedText style={[styles.tableCell, { flex: 1.5 }]}>{investment.type}</ThemedText>
-                <ThemedText style={[styles.tableCell, { flex: 1.5 }]}>{investment.name}</ThemedText>
-                <ThemedText style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{investment.amount}</ThemedText>
-              </View>
-            ))}
+            {/* Table rows with ScrollView */}
+            <ScrollView style={styles.tableScrollView}>
+              {investmentData.map((investment) => (
+                <View key={investment.investment_id} style={styles.tableRow}>
+                  <ThemedText style={[styles.tableCell, { flex: 1.2 }]}>{formatDate(investment.investment_date)}</ThemedText>
+                  <ThemedText style={[styles.tableCell, { flex: 1.5 }]}>{investment.type}</ThemedText>
+                  <ThemedText style={[styles.tableCell, { flex: 1.5 }]}>{investment.name}</ThemedText>
+                  <ThemedText style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{formatNumber(investment.amount, user?.currency_id || 1)}</ThemedText>
+                </View>
+              ))}
+            </ScrollView>
           </Card>
         )}
         
-        {/* Card 4: Edit Categories */}
+        {/* Card 4: Bank Statement Reader */}
+        <Card style={styles.card}>
+          <TouchableOpacity onPress={() => setSmsReaderModalVisible(true)}>
+            <View style={styles.linkContainer}>
+              <IconSymbol 
+                name="doc.badge.plus" 
+                size={24} 
+                color={isDark ? '#4361EE' : '#3D5AF1'} 
+              />
+              <ThemedText style={styles.linkText}>Extract Transaction from Bank Statement</ThemedText>
+              <IconSymbol 
+                name="chevron.right" 
+                size={20} 
+                color={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'} 
+              />
+            </View>
+          </TouchableOpacity>
+        </Card>
+
+        {/* Card 5: Upload Bill */}
+        <Card style={styles.card}>
+          <TouchableOpacity onPress={() => {}}>
+            <View style={styles.linkContainer}>
+              <IconSymbol 
+                name="doc.badge.plus" 
+                size={24} 
+                color={isDark ? '#4361EE' : '#3D5AF1'} 
+              />
+              <ThemedText style={styles.linkText}>Upload Bill</ThemedText>
+              <IconSymbol 
+                name="chevron.right" 
+                size={20} 
+                color={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'} 
+              />
+            </View>
+          </TouchableOpacity>
+        </Card>
+
+        {/* Card 6: Edit Categories */}
         <Card style={styles.card}>
           <TouchableOpacity onPress={handleEditCategoriesModalOpen}>
             <View style={styles.linkContainer}>
@@ -826,532 +910,147 @@ export default function MonthlyChurnScreen() {
           transparent={true}
           animationType="slide"
           onRequestClose={() => setTransactionModalVisible(false)}
+          statusBarTranslucent
         >
           {selectedTransaction && (
-            <View style={styles.centeredView}>
-              <View style={[styles.modalView, { backgroundColor: cardBackgroundColor }]}>
-                <View style={styles.modalHeader}>
-                  <ThemedText style={styles.modalTitle}>Transaction Details</ThemedText>
-                  <TouchableOpacity onPress={() => setTransactionModalVisible(false)}>
-                    <IconSymbol name="xmark.circle.fill" size={24} color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} />
-                  </TouchableOpacity>
-                </View>
-                
-                <ScrollView style={styles.modalScrollView}>
-                  <View style={styles.modalItem}>
-                    <ThemedText style={styles.modalLabel}>Date</ThemedText>
-                    <ThemedText style={styles.modalValue}>{formatDate(selectedTransaction.transaction_date)}</ThemedText>
+            <SafeAreaView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} edges={['top']}>
+              <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+              <View style={styles.centeredView}>
+                <View style={[styles.modalView, { backgroundColor: cardBackgroundColor }]}>
+                  <View style={styles.modalHeader}>
+                    <ThemedText style={styles.modalTitle}>Transaction Details</ThemedText>
+                    <TouchableOpacity onPress={() => setTransactionModalVisible(false)}>
+                      <IconSymbol name="xmark.circle.fill" size={24} color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} />
+                    </TouchableOpacity>
                   </View>
                   
-                  <View style={styles.modalItem}>
-                    <ThemedText style={styles.modalLabel}>Category</ThemedText>
-                    <ThemedText style={styles.modalValue}>
-                      {categories.find(c => c.category_id === selectedTransaction.category_id)?.category_name || 'Unknown'}
-                    </ThemedText>
-                  </View>
+                  <ScrollView style={styles.modalScrollView}>
+                    <View style={styles.modalItem}>
+                      <ThemedText style={styles.modalLabel}>Date</ThemedText>
+                      <ThemedText style={styles.modalValue}>{formatDate(selectedTransaction.transaction_date)}</ThemedText>
+                    </View>
+                    
+                    <View style={styles.modalItem}>
+                      <ThemedText style={styles.modalLabel}>Category</ThemedText>
+                      <ThemedText style={styles.modalValue}>
+                        {categories.find(c => c.category_id === selectedTransaction.category_id)?.category_name || 'Unknown'}
+                      </ThemedText>
+                    </View>
+                    
+                    <View style={styles.modalItem}>
+                      <ThemedText style={styles.modalLabel}>SubCategory</ThemedText>
+                      <ThemedText style={styles.modalValue}>
+                        {subCategories.find(sc => sc.sub_category_id === selectedTransaction.sub_category_id)?.sub_category_name || 'Unknown'}
+                      </ThemedText>
+                    </View>
+                    
+                    <View style={styles.modalItem}>
+                      <ThemedText style={styles.modalLabel}>Item Name</ThemedText>
+                      <ThemedText style={styles.modalValue}>{selectedTransaction.transaction_name}</ThemedText>
+                    </View>
+                    
+                    <View style={styles.modalItem}>
+                      <ThemedText style={styles.modalLabel}>Total Amount</ThemedText>
+                      <ThemedText style={styles.modalValue}>₹{formatNumber(selectedTransaction.amount, user?.currency_id || 1)}</ThemedText>
+                    </View>
+                    
+                    <View style={styles.modalItem}>
+                      <ThemedText style={styles.modalLabel}>Seller Name</ThemedText>
+                      <ThemedText style={styles.modalValue}>{selectedTransaction.seller_name}</ThemedText>
+                    </View>
+                    
+                    <View style={styles.modalItem}>
+                      <ThemedText style={styles.modalLabel}>Discount Amount</ThemedText>
+                      <ThemedText style={styles.modalValue}>
+                        {selectedTransaction.discount_amount ? `₹${formatNumber(selectedTransaction.discount_amount, user?.currency_id || 1)}` : 'N/A'}
+                      </ThemedText>
+                    </View>
+                    
+                    <View style={styles.modalItem}>
+                      <ThemedText style={styles.modalLabel}>Discount Origin</ThemedText>
+                      <ThemedText style={styles.modalValue}>
+                        {selectedTransaction.discount_origin || 'N/A'}
+                      </ThemedText>
+                    </View>
+                    
+                    <View style={styles.modalItem}>
+                      <ThemedText style={styles.modalLabel}>Comments</ThemedText>
+                      <ThemedText style={styles.modalValue}>
+                        {selectedTransaction.comments || 'N/A'}
+                      </ThemedText>
+                    </View>
+                  </ScrollView>
                   
-                  <View style={styles.modalItem}>
-                    <ThemedText style={styles.modalLabel}>SubCategory</ThemedText>
-                    <ThemedText style={styles.modalValue}>
-                      {subCategories.find(sc => sc.sub_category_id === selectedTransaction.sub_category_id)?.sub_category_name || 'Unknown'}
-                    </ThemedText>
-                  </View>
-                  
-                  <View style={styles.modalItem}>
-                    <ThemedText style={styles.modalLabel}>Item Name</ThemedText>
-                    <ThemedText style={styles.modalValue}>{selectedTransaction.transaction_name}</ThemedText>
-                  </View>
-                  
-                  <View style={styles.modalItem}>
-                    <ThemedText style={styles.modalLabel}>Total Amount</ThemedText>
-                    <ThemedText style={styles.modalValue}>₹{selectedTransaction.amount}</ThemedText>
-                  </View>
-                  
-                  <View style={styles.modalItem}>
-                    <ThemedText style={styles.modalLabel}>Seller Name</ThemedText>
-                    <ThemedText style={styles.modalValue}>{selectedTransaction.seller_name}</ThemedText>
-                  </View>
-                  
-                  <View style={styles.modalItem}>
-                    <ThemedText style={styles.modalLabel}>Discount Amount</ThemedText>
-                    <ThemedText style={styles.modalValue}>
-                      {selectedTransaction.discount_amount ? `₹${selectedTransaction.discount_amount}` : 'N/A'}
-                    </ThemedText>
-                  </View>
-                  
-                  <View style={styles.modalItem}>
-                    <ThemedText style={styles.modalLabel}>Discount Origin</ThemedText>
-                    <ThemedText style={styles.modalValue}>
-                      {selectedTransaction.discount_origin || 'N/A'}
-                    </ThemedText>
-                  </View>
-                  
-                  <View style={styles.modalItem}>
-                    <ThemedText style={styles.modalLabel}>Comments</ThemedText>
-                    <ThemedText style={styles.modalValue}>
-                      {selectedTransaction.comments || 'N/A'}
-                    </ThemedText>
-                  </View>
-                </ScrollView>
-                
-                <View style={styles.modalButtonRow}>
-                  <TouchableOpacity
-                    style={[styles.modalDeleteButton, { backgroundColor: isDark ? '#EF4444' : '#F87171' }]}
-                    onPress={() => {
-                      Alert.alert(
-                        'Delete Transaction',
-                        'Are you sure you want to delete this transaction? This action cannot be undone.',
-                        [
-                          {
-                            text: 'Cancel',
-                            style: 'cancel'
-                          },
-                          {
-                            text: 'Delete',
-                            style: 'destructive',
-                            onPress: async () => {
-                              try {
-                                await deleteTransaction(selectedTransaction.transaction_id);
-                                setTransactionModalVisible(false);
-                              } catch (err) {
-                                console.error('Error deleting transaction:', err);
-                                Alert.alert('Error', 'Failed to delete transaction. Please try again.');
+                  <View style={styles.modalButtonRow}>
+                    <TouchableOpacity
+                      style={[styles.modalDeleteButton, { backgroundColor: isDark ? '#EF4444' : '#F87171' }]}
+                      onPress={() => {
+                        Alert.alert(
+                          'Delete Transaction',
+                          'Are you sure you want to delete this transaction? This action cannot be undone.',
+                          [
+                            {
+                              text: 'Cancel',
+                              style: 'cancel'
+                            },
+                            {
+                              text: 'Delete',
+                              style: 'destructive',
+                              onPress: async () => {
+                                try {
+                                  await deleteTransaction(selectedTransaction.transaction_id);
+                                  setTransactionModalVisible(false);
+                                } catch (err) {
+                                  console.error('Error deleting transaction:', err);
+                                  Alert.alert('Error', 'Failed to delete transaction. Please try again.');
+                                }
                               }
                             }
-                          }
-                        ]
-                      );
-                    }}
-                  >
-                    <IconSymbol name="trash" size={20} color="#fff" />
-                    <ThemedText style={styles.modalDeleteButtonText}>Delete</ThemedText>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.modalButton, { backgroundColor: isDark ? '#4361EE' : '#3D5AF1' }]}
-                    onPress={() => setTransactionModalVisible(false)}
-                  >
-                    <ThemedText style={styles.modalButtonText}>Close</ThemedText>
-                  </TouchableOpacity>
+                          ]
+                        );
+                      }}
+                    >
+                      <IconSymbol name="trash" size={20} color="#fff" />
+                      <ThemedText style={styles.modalDeleteButtonText}>Delete</ThemedText>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.modalButton, { backgroundColor: isDark ? '#4361EE' : '#3D5AF1' }]}
+                      onPress={() => setTransactionModalVisible(false)}
+                    >
+                      <ThemedText style={styles.modalButtonText}>Close</ThemedText>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
-            </View>
+            </SafeAreaView>
           )}
         </Modal>
         
         {/* Add Transaction Modal */}
-        <Modal
+        <AddTransactionModal
           visible={addModalVisible}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => setAddModalVisible(false)}
-        >
-          <View style={styles.centeredView}>
-            <View style={[styles.modalView, { backgroundColor: cardBackgroundColor }]}>
-              <View style={styles.modalHeader}>
-                <ThemedText style={styles.modalTitle}>Add Transaction</ThemedText>
-                <TouchableOpacity onPress={() => setAddModalVisible(false)}>
-                  <IconSymbol name="xmark.circle.fill" size={24} color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} />
-                </TouchableOpacity>
-              </View>
-              
-              <ScrollView style={styles.modalScrollView}>
-                {/* Transaction Type Selection */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>Transaction Type *</ThemedText>
-                  <View style={styles.radioGroup}>
-                    <TouchableOpacity 
-                      style={[
-                        styles.radioButton,
-                        newTransaction.transaction_type === 0 && styles.radioButtonSelected,
-                        { borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }
-                      ]}
-                      onPress={() => setNewTransaction({ ...newTransaction, transaction_type: 0 })}
-                    >
-                      <View style={[
-                        styles.radioCircle,
-                        newTransaction.transaction_type === 0 && styles.radioCircleSelected,
-                        { backgroundColor: isDark ? '#4361EE' : '#3D5AF1' }
-                      ]}>
-                        {newTransaction.transaction_type === 0 && (
-                          <IconSymbol name="checkmark" size={16} color="#fff" />
-                        )}
-                      </View>
-                      <ThemedText style={styles.radioLabel}>Debit</ThemedText>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity 
-                      style={[
-                        styles.radioButton,
-                        newTransaction.transaction_type === 1 && styles.radioButtonSelected,
-                        { borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }
-                      ]}
-                      onPress={() => setNewTransaction({ ...newTransaction, transaction_type: 1 })}
-                    >
-                      <View style={[
-                        styles.radioCircle,
-                        newTransaction.transaction_type === 1 && styles.radioCircleSelected,
-                        { backgroundColor: isDark ? '#4361EE' : '#3D5AF1' }
-                      ]}>
-                        {newTransaction.transaction_type === 1 && (
-                          <IconSymbol name="checkmark" size={16} color="#fff" />
-                        )}
-                      </View>
-                      <ThemedText style={styles.radioLabel}>Credit</ThemedText>
-                    </TouchableOpacity>
-                  </View>
-                  {formErrors.transaction_type && <ThemedText style={styles.errorText}>{formErrors.transaction_type}</ThemedText>}
-                </View>
-
-                {/* Date Selection */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>Date *</ThemedText>
-                  <TouchableOpacity 
-                    style={[styles.formInput, { 
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }]}
-                    onPress={() => {
-                      setTempDate(new Date(newTransaction.transaction_date));
-                      setDatePickerModalVisible(true);
-                    }}
-                  >
-                    <ThemedText style={{ color: isDark ? '#fff' : '#000' }}>
-                      {formatDate(newTransaction.transaction_date)}
-                    </ThemedText>
-                    <IconSymbol 
-                      name="calendar" 
-                      size={20} 
-                      color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} 
-                    />
-                  </TouchableOpacity>
-                  {formErrors.transaction_date && <ThemedText style={styles.errorText}>{formErrors.transaction_date}</ThemedText>}
-                </View>
-
-                {datePickerModalVisible && (
-                  <DateTimePicker
-                    value={tempDate}
-                    mode="date"
-                    display="default"
-                    onChange={(_event: unknown, selectedDate?: Date) => {
-                      setDatePickerModalVisible(false);
-                      if (selectedDate) {
-                        setTempDate(selectedDate);
-                        setNewTransaction({ ...newTransaction, transaction_date: selectedDate.toISOString().split('T')[0] });
-                      }
-                    }}
-                  />
-                )}
-                {/* Category Selection */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>Category *</ThemedText>
-                  <TouchableOpacity 
-                    style={[styles.dropdownButton, { borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }]}
-                    onPress={() => setShowCategoryDropdown(!showCategoryDropdown)}
-                  >
-                    <ThemedText style={styles.dropdownButtonText}>
-                      {newTransaction.category_id 
-                        ? categories.find(c => c.category_id === newTransaction.category_id)?.category_name 
-                        : 'Select category'}
-                    </ThemedText>
-                    <IconSymbol 
-                      name={showCategoryDropdown ? "chevron.up" : "chevron.down"} 
-                      size={20} 
-                      color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} 
-                    />
-                  </TouchableOpacity>
-                  
-                  {showCategoryDropdown && (
-                    <View style={[styles.dropdownContainer, { backgroundColor: cardBackgroundColor }]}>
-                      <Searchbar
-                        placeholder="Search categories"
-                        onChangeText={setCategorySearch}
-                        value={categorySearch}
-                        style={styles.searchBar}
-                        inputStyle={{ color: isDark ? '#fff' : '#000' }}
-                        placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
-                      />
-                      <ScrollView style={styles.dropdownList}>
-                        {filteredCategories.map(cat => (
-                          <TouchableOpacity
-                            key={cat.category_id}
-                            style={styles.dropdownItem}
-                            onPress={() => {
-                              setNewTransaction({ ...newTransaction, category_id: cat.category_id, sub_category_id: 0 });
-                              fetchSubCategories(cat.category_id);
-                              setShowCategoryDropdown(false);
-                              setCategorySearch('');
-                            }}
-                          >
-                            <ThemedText style={styles.dropdownItemText}>{cat.category_name}</ThemedText>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-                  {formErrors.category_id && <ThemedText style={styles.errorText}>{formErrors.category_id}</ThemedText>}
-                </View>
-                {/* SubCategory Selection */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>SubCategory</ThemedText>
-                  <TouchableOpacity 
-                    style={[
-                      styles.dropdownButton, 
-                      { 
-                        borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)',
-                        opacity: newTransaction.category_id ? 1 : 0.5 
-                      }
-                    ]}
-                    onPress={() => newTransaction.category_id && setShowSubCategoryDropdown(!showSubCategoryDropdown)}
-                    disabled={!newTransaction.category_id}
-                  >
-                    <ThemedText style={styles.dropdownButtonText}>
-                      {newTransaction.sub_category_id 
-                        ? subCategories.find(sc => sc.sub_category_id === newTransaction.sub_category_id)?.sub_category_name 
-                        : 'Select subcategory'}
-                    </ThemedText>
-                    <IconSymbol 
-                      name={showSubCategoryDropdown ? "chevron.up" : "chevron.down"} 
-                      size={20} 
-                      color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} 
-                    />
-                  </TouchableOpacity>
-                  
-                  {showSubCategoryDropdown && (
-                    <View style={[styles.dropdownContainer, { backgroundColor: cardBackgroundColor }]}>
-                      <Searchbar
-                        placeholder="Search subcategories"
-                        onChangeText={setSubCategorySearch}
-                        value={subCategorySearch}
-                        style={styles.searchBar}
-                        inputStyle={{ color: isDark ? '#fff' : '#000' }}
-                        placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
-                      />
-                      <ScrollView style={styles.dropdownList}>
-                        {filteredSubCategories.map(sub => (
-                          <TouchableOpacity
-                            key={sub.sub_category_id}
-                            style={styles.dropdownItem}
-                            onPress={() => {
-                              setNewTransaction({ ...newTransaction, sub_category_id: sub.sub_category_id });
-                              setShowSubCategoryDropdown(false);
-                              setSubCategorySearch('');
-                            }}
-                          >
-                            <ThemedText style={styles.dropdownItemText}>{sub.sub_category_name}</ThemedText>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-                </View>
-                {/* Item Name */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>Item Name</ThemedText>
-                  <TextInput
-                    style={[styles.formInput, { color: isDark ? '#fff' : '#000' }]}
-                    placeholder="Enter item name"
-                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
-                    value={newTransaction.transaction_name}
-                    onChangeText={(text) => setNewTransaction({ ...newTransaction, transaction_name: text })}
-                  />
-                </View>
-                {/* Amount */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>Amount ( {currencySymbol} ) *</ThemedText>
-                  <TextInput
-                    style={[styles.formInput, { color: isDark ? '#fff' : '#000' }]}
-                    placeholder={`Enter amount in ${currencySymbol}`}
-                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
-                    keyboardType="numeric"
-                    value={newTransaction.amount ? newTransaction.amount.toString() : ''}
-                    onChangeText={(text) => setNewTransaction({ ...newTransaction, amount: parseFloat(text) || 0 })}
-                  />
-                  {formErrors.amount && <ThemedText style={{ color: 'red' }}>{formErrors.amount}</ThemedText>}
-                </View>
-                {/* Seller Name */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>Seller Name</ThemedText>
-                  <TextInput
-                    style={[styles.formInput, { color: isDark ? '#fff' : '#000' }]}
-                    placeholder="Enter seller name"
-                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
-                    value={newTransaction.seller_name}
-                    onChangeText={(text) => setNewTransaction({ ...newTransaction, seller_name: text })}
-                  />
-                </View>
-                {/* Discount Amount */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>Discount Amount</ThemedText>
-                  <TextInput
-                    style={[styles.formInput, { color: isDark ? '#fff' : '#000' }]}
-                    placeholder="Enter discount amount"
-                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
-                    keyboardType="numeric"
-                    value={newTransaction.discount_amount ? newTransaction.discount_amount.toString() : ''}
-                    onChangeText={(text) => setNewTransaction({ ...newTransaction, discount_amount: parseFloat(text) || 0 })}
-                  />
-                </View>
-                {/* Discount Origin */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>Discount Origin</ThemedText>
-                  <TextInput
-                    style={[styles.formInput, { color: isDark ? '#fff' : '#000' }]}
-                    placeholder="Enter discount origin"
-                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
-                    value={newTransaction.discount_origin}
-                    onChangeText={(text) => setNewTransaction({ ...newTransaction, discount_origin: text })}
-                  />
-                </View>
-                {/* Comments */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>Comments</ThemedText>
-                  <TextInput
-                    style={[styles.formInput, styles.textArea, { color: isDark ? '#fff' : '#000' }]}
-                    placeholder="Add comments"
-                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
-                    multiline={true}
-                    numberOfLines={3}
-                    value={newTransaction.comments}
-                    onChangeText={(text) => setNewTransaction({ ...newTransaction, comments: text })}
-                  />
-                </View>
-                <ThemedText style={styles.requiredNote}>* Required fields</ThemedText>
-              </ScrollView>
-              
-              <View style={styles.modalButtonRow}>
-                <TouchableOpacity
-                  style={[styles.modalCancelButton, { borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }]}
-                  onPress={() => setAddModalVisible(false)}
-                >
-                  <ThemedText style={styles.modalCancelButtonText}>Cancel</ThemedText>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalSaveButton, { backgroundColor: isDark ? '#4361EE' : '#3D5AF1' }]}
-                  onPress={handleAddTransaction}
-                >
-                  <ThemedText style={styles.modalSaveButtonText}>Add</ThemedText>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
+          onClose={() => setAddModalVisible(false)}
+          onSuccess={async () => {
+            setAddModalVisible(false);
+            await fetchCategories();
+            await fetchAllSubCategories();
+            await fetchTransactions();
+          }}
+          isDark={isDark}
+          cardBackgroundColor={cardBackgroundColor}
+        />
         
         {/* Add Investment Modal */}
-        <Modal
-          animationType="slide"
-          transparent={true}
+        <AddInvestmentModal
           visible={addInvestmentModalVisible}
-          onRequestClose={() => setAddInvestmentModalVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, styles.addModalContent, { backgroundColor: Colors[colorScheme].card }]}>
-              <View style={styles.modalHeader}>
-                <ThemedText style={styles.modalTitle}>Add Investment</ThemedText>
-                <TouchableOpacity onPress={() => setAddInvestmentModalVisible(false)}>
-                  <IconSymbol name="xmark.circle.fill" size={24} color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} />
-                </TouchableOpacity>
-              </View>
-              
-              <ScrollView style={styles.formContainer}>
-                {/* Date Selection */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>Date *</ThemedText>
-                  <TouchableOpacity 
-                    style={[styles.formInput, { 
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }]}
-                    onPress={() => setInvestmentDatePickerVisible(true)}
-                  >
-                    <ThemedText style={{ color: isDark ? '#fff' : '#000' }}>
-                      {formatDate(newInvestment.investment_date)}
-                    </ThemedText>
-                    <IconSymbol 
-                      name="calendar" 
-                      size={20} 
-                      color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} 
-                    />
-                  </TouchableOpacity>
-                </View>
-
-                {investmentDatePickerVisible && (
-                  <DateTimePicker
-                    value={new Date(newInvestment.investment_date)}
-                    mode="date"
-                    display="default"
-                    onChange={(_event: unknown, selectedDate?: Date) => {
-                      setInvestmentDatePickerVisible(false);
-                      if (selectedDate) {
-                        setNewInvestment({ ...newInvestment, investment_date: selectedDate.toISOString().split('T')[0] });
-                      }
-                    }}
-                  />
-                )}
-
-                {/* Investment Type */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>Type *</ThemedText>
-                  <View style={[styles.formInput, { padding: 0 }]}>
-                    <Picker
-                      selectedValue={newInvestment.type}
-                      onValueChange={(value) => setNewInvestment({ ...newInvestment, type: value })}
-                      style={{ color: isDark ? '#fff' : '#000' }}
-                    >
-                      <Picker.Item label="Select type" value="" />
-                      {INVESTMENT_TYPES.map((type) => (
-                        <Picker.Item key={type} label={type} value={type} />
-                      ))}
-                    </Picker>
-                  </View>
-                </View>
-
-                {/* Investment Name */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>Name *</ThemedText>
-                  <TextInput
-                    style={[styles.formInput, { color: isDark ? '#fff' : '#000' }]}
-                    placeholder="Enter investment name"
-                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
-                    value={newInvestment.name}
-                    onChangeText={(text) => setNewInvestment({ ...newInvestment, name: text })}
-                  />
-                </View>
-
-                {/* Amount */}
-                <View style={styles.formItem}>
-                  <ThemedText style={styles.formLabel}>Amount ({currencySymbol}) *</ThemedText>
-                  <TextInput
-                    style={[styles.formInput, { color: isDark ? '#fff' : '#000' }]}
-                    placeholder={`Enter amount in ${currencySymbol}`}
-                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'}
-                    keyboardType="numeric"
-                    value={newInvestment.amount ? newInvestment.amount.toString() : ''}
-                    onChangeText={(text) => setNewInvestment({ ...newInvestment, amount: parseFloat(text) || 0 })}
-                  />
-                </View>
-
-                <ThemedText style={styles.requiredNote}>* Required fields</ThemedText>
-              </ScrollView>
-
-              <View style={styles.modalButtonRow}>
-                <TouchableOpacity
-                  style={[styles.modalCancelButton, { borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }]}
-                  onPress={() => setAddInvestmentModalVisible(false)}
-                >
-                  <ThemedText style={styles.modalCancelButtonText}>Cancel</ThemedText>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalSaveButton, { backgroundColor: isDark ? '#4361EE' : '#3D5AF1' }]}
-                  onPress={addInvestment}
-                >
-                  <ThemedText style={styles.modalSaveButtonText}>Add</ThemedText>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
+          onClose={() => setAddInvestmentModalVisible(false)}
+          onSuccess={() => {
+            setAddInvestmentModalVisible(false);
+            fetchInvestments();
+          }}
+          isDark={isDark}
+          cardBackgroundColor={cardBackgroundColor}
+        />
         
         {/* Edit Categories Modal */}
         <Modal
@@ -1359,17 +1058,26 @@ export default function MonthlyChurnScreen() {
           transparent={true}
           visible={editCategoriesModalVisible}
           onRequestClose={() => setEditCategoriesModalVisible(false)}
+          statusBarTranslucent
         >
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, styles.addModalContent, { backgroundColor: Colors[colorScheme].card }]}>
-              <View style={styles.modalHeader}>
-                <ThemedText style={styles.modalTitle}>Edit Categories</ThemedText>
-                <TouchableOpacity onPress={() => setEditCategoriesModalVisible(false)}>
-                  <IconSymbol name="xmark.circle.fill" size={24} color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} />
+          <SafeAreaView style={{ flex: 1, backgroundColor }} edges={['top']}>
+            <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+            <View style={{ flex: 1 }}>
+              <View style={[styles.modalHeader, { borderBottomColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }]}>
+                <TouchableOpacity 
+                  onPress={() => setEditCategoriesModalVisible(false)}
+                  style={styles.modalCloseButton}
+                >
+                  <IconSymbol 
+                    name="xmark" 
+                    size={24} 
+                    color={isDark ? '#fff' : '#000'} 
+                  />
                 </TouchableOpacity>
+                <ThemedText style={styles.modalTitle}>Edit Categories</ThemedText>
               </View>
               
-              <ScrollView style={styles.formContainer}>
+              <ScrollView style={styles.modalContent}>
                 {/* Add New Category Section */}
                 <View style={styles.categorySection}>
                   <View style={styles.categoryHeader}>
@@ -1468,19 +1176,82 @@ export default function MonthlyChurnScreen() {
                   </View>
                 ))}
               </ScrollView>
-              
-              <TouchableOpacity
-                style={[styles.modalButton, styles.closeButton]} 
-                onPress={() => setEditCategoriesModalVisible(false)}
-              >
-                <ThemedText style={styles.buttonText}>Close</ThemedText>
-              </TouchableOpacity>
             </View>
-          </View>
+          </SafeAreaView>
         </Modal>
 
-        {/* DatePickerModal component */}
-        <DatePickerModal />
+        {/* Bank Statement Reader Modal */}
+        <Modal
+          visible={smsReaderModalVisible}
+          animationType="slide"
+          onRequestClose={() => setSmsReaderModalVisible(false)}
+          statusBarTranslucent
+        >
+          <SafeAreaView style={{ flex: 1, backgroundColor }} edges={['top']}>
+            <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+            <View style={[styles.modalHeader, { borderBottomColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }]}> 
+              <TouchableOpacity 
+                onPress={() => setSmsReaderModalVisible(false)}
+                style={styles.modalCloseButton}
+              >
+                <IconSymbol 
+                  name="xmark" 
+                  size={24} 
+                  color={isDark ? '#fff' : '#000'} 
+                />
+              </TouchableOpacity>
+              <ThemedText style={styles.modalTitle}>Extract Transaction from Bank Statement</ThemedText>
+            </View>
+            <BankStatementReader 
+              isDark={isDark}
+              cardBackgroundColor={cardBackgroundColor}
+              borderColor={borderColor}
+              cycleStartDate={user?.monthly_start_date ? (() => {
+                const today = new Date();
+                const startDay = parseInt(user.monthly_start_date);
+                const startDate = new Date(today.getFullYear(), today.getMonth(), startDay);
+                return startDate;
+              })() : new Date()}
+              onClose={() => setSmsReaderModalVisible(false)}
+            />
+          </SafeAreaView>
+        </Modal>
+
+        {/* Date Picker Modal */}
+        <Modal
+          visible={datePickerModalVisible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setDatePickerModalVisible(false)}
+          statusBarTranslucent
+        >
+          <SafeAreaView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} edges={['top']}>
+            <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+            <View style={styles.modalOverlay}>
+              <View style={[styles.modalContent, { backgroundColor: cardBackgroundColor, padding: 20 }]}>
+                <View style={styles.modalHeader}>
+                  <ThemedText style={styles.modalTitle}>Select Date</ThemedText>
+                  <TouchableOpacity onPress={() => setDatePickerModalVisible(false)}>
+                    <IconSymbol name="xmark.circle.fill" size={24} color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'} />
+                  </TouchableOpacity>
+                </View>
+                
+                <DateTimePicker
+                  value={tempDate}
+                  mode="date"
+                  display="default"
+                  onChange={(_event: unknown, selectedDate?: Date) => {
+                    if (selectedDate) {
+                      setTempDate(selectedDate);
+                      setNewTransaction({ ...newTransaction, transaction_date: selectedDate.toISOString().split('T')[0] });
+                      setDatePickerModalVisible(false);
+                    }
+                  }}
+                />
+              </View>
+            </View>
+          </SafeAreaView>
+        </Modal>
       </ScrollView>
     // </SafeAreaView>
   );
@@ -1610,6 +1381,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 2,
     borderBottomColor: 'rgba(0,0,0,0.1)',
+    backgroundColor: 'transparent', // Ensure header stays visible
   },
   tableHeaderCell: {
     fontWeight: 'bold',
@@ -1623,6 +1395,7 @@ const styles = StyleSheet.create({
   },
   tableCell: {
     fontSize: 14,
+    paddingRight: 8,
   },
   // Modal styles
   centeredView: {
@@ -1647,13 +1420,21 @@ const styles = StyleSheet.create({
   },
   modalHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    padding: 16,
+    borderBottomWidth: 1,
+  },
+  modalContent: {
+    flex: 1,
+    padding: 16,
+  },
+  modalCloseButton: {
+    marginRight: 16,
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
+    flex: 1,
   },
   modalScrollView: {
     marginBottom: 16,
@@ -1838,16 +1619,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     padding: 16,
   },
-  modalContent: {
-    width: '90%',
-    borderRadius: 12,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
   addModalContent: {
     maxHeight: '80%',
   },
@@ -1970,6 +1741,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  chartScrollView: {
+    maxHeight: 300, // Same height as tables for consistency
+  },
   chartContainer: {
     marginTop: 12,
   },
@@ -2009,5 +1783,39 @@ const styles = StyleSheet.create({
   },
   radioLabel: {
     fontSize: 16,
+  },
+  suggestionContainer: {
+    position: 'relative',
+    zIndex: 1,
+  },
+  suggestionList: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    maxHeight: 200,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    zIndex: 2,
+  },
+  suggestionScrollView: {
+    maxHeight: 200,
+  },
+  suggestionItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  suggestionItemText: {
+    fontSize: 16,
+  },
+  tableScrollView: {
+    maxHeight: 300, // Adjust this value as needed
   },
 }); 

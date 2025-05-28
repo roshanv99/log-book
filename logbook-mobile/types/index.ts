@@ -15,6 +15,7 @@ export interface Transaction {
   is_income: number;
   created_at: string;
   updated_at: string;
+  code?: string;
 }
 
 export interface Investment {
@@ -61,6 +62,7 @@ export interface TransactionFormData {
   transaction_type: number;
   is_income: number;
   user_id: string;
+  code?: string;
 }
 
 export interface InvestmentFormData {
@@ -77,5 +79,8 @@ export interface User {
   username: string;
   email: string;
   currency_id?: number;
+  monthly_start_date?: string;
+  mobile_number?: string;
+  profile_pic?: string;
   // Add other fields as needed
 } 

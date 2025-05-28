@@ -290,4 +290,32 @@ export const upsertIncomeForCurrentPeriod = async (req: Request, res: Response) 
     }
     res.status(500).json({ message: 'Failed to save income' });
   }
+};
+
+export const updateTransactionsCategory = async (req: Request, res: Response) => {
+  try {
+    const { oldCategoryId, newCategoryId } = req.body;
+    if (!oldCategoryId || !newCategoryId) {
+      return res.status(400).json({ message: 'Both oldCategoryId and newCategoryId are required' });
+    }
+    await transactionService.updateTransactionsCategory(oldCategoryId, newCategoryId);
+    res.json({ message: 'Transactions updated successfully' });
+  } catch (error) {
+    console.error('Update transactions category error:', error);
+    res.status(500).json({ message: 'Failed to update transactions' });
+  }
+};
+
+export const updateTransactionsSubCategory = async (req: Request, res: Response) => {
+  try {
+    const { subCategoryId } = req.body;
+    if (!subCategoryId) {
+      return res.status(400).json({ message: 'subCategoryId is required' });
+    }
+    await transactionService.updateTransactionsSubCategory(subCategoryId);
+    res.json({ message: 'Transactions updated successfully' });
+  } catch (error) {
+    console.error('Update transactions subcategory error:', error);
+    res.status(500).json({ message: 'Failed to update transactions' });
+  }
 }; 

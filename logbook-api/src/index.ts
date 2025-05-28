@@ -6,6 +6,7 @@ import transactionRoutes from './routes/transactionRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import currencyRoutes from './routes/currencyRoutes';
 import investmentRoutes from './routes/investmentRoutes';
+import bankStatementRoutes from './routes/bankStatementRoutes';
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './swagger';
@@ -29,7 +30,10 @@ app.use('/api/transactions', transactionRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/currencies', currencyRoutes);
 app.use('/api/investments', investmentRoutes);
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use('/api/bank-statement', bankStatementRoutes);
+
+// Swagger documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Simple health check route
 app.get('/api/health', (req, res) => {

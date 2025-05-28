@@ -34,6 +34,13 @@ export default function FinanceTabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="goals"
+        options={{
+          title: 'Goals',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="target" color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="monthly-churn"
         options={{
           title: 'Monthly Churn',
@@ -52,6 +59,13 @@ export default function FinanceTabsLayout() {
         options={{
           title: 'Upload Bill',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="doc.badge.plus" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="people"
+        options={{
+          title: 'People',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.2.fill" color={color} />,
         }}
       />
     </Tabs>

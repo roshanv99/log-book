@@ -241,6 +241,28 @@ class TransactionService {
       );
     }
   }
+
+  async updateTransactionsCategory(oldCategoryId: number, newCategoryId: number): Promise<void> {
+    // Update all transactions that use the old category to use the new category
+    await pool.query(
+      `UPDATE transactions 
+       SET category_id = $1, 
+           updated_at = NOW() 
+       WHERE category_id = $2`,
+      [newCategoryId, oldCategoryId]
+    );
+  }
+
+  async updateTransactionsSubCategory(subCategoryId: number): Promise<void> {
+    // Set sub_category_id to null for all transactions using this subcategory
+    await pool.query(
+      `UPDATE transactions 
+       SET sub_category_id = NULL, 
+           updated_at = NOW() 
+       WHERE sub_category_id = $1`,
+      [subCategoryId]
+    );
+  }
 }
 
 export default new TransactionService();
